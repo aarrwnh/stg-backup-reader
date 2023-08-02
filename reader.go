@@ -12,13 +12,18 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/exp/slices"
 )
 
 var path = flag.String("p", ".", "path")
+
+var r = regexp.MustCompile(`\[(.*)\]`)
 
 func main() {
 	flag.Parse()
@@ -38,9 +43,7 @@ func main() {
 
 	t := S{data: data, limit: 10, files: keys}
 
-	go func() {
-		t.Console()
-	}()
+	go t.Console()
 
 	// TODO:
 	sig := <-cancelChan
@@ -57,7 +60,7 @@ func loadFiles(path *string) (files map[string]STGPayload, err error) {
 	for _, entry := range dir {
 		name := entry.Name()
 		ext := filepath.Ext(name)
-		if entry.Type().IsRegular() && strings.Contains(name, "stg-") && ext == ".json" {
+		if entry.Type().IsRegular() && strings.HasPrefix(name, "manual-stg-") && ext == ".json" {
 			path := filepath.Clean(*path + "/" + name)
 			content, err := ioutil.ReadFile(path)
 			if err != nil {
@@ -69,6 +72,26 @@ func loadFiles(path *string) (files map[string]STGPayload, err error) {
 			if err != nil {
 				log.Fatal("Error during Unmarshal()", err)
 			}
+
+			// simple filter by group id found inside brackets []
+			match := r.FindStringSubmatch(name)
+			if len(match) == 2 {
+				var allowedGroups []int
+				for _, x := range strings.Split(match[1], " ") {
+					id, err := strconv.ParseInt(x, 10, 0)
+					if err == nil {
+						allowedGroups = append(allowedGroups, int(id))
+					}
+				}
+
+				g := &payload.Groups
+				for i := len(*g) - 1; i >= 0; i-- {
+					if !slices.Contains(allowedGroups, (*g)[i].ID) {
+						(*g) = append((*g)[:i], (*g)[i+1:]...)
+					}
+				}
+			}
+
 			files[path] = payload
 		}
 	}
@@ -173,6 +196,7 @@ func (s *S) Process(cmd string) (err error) {
 		for ; i >= 0; i-- {
 			fmt.Println(s.prevFound[i].URL)
 			open(s.prevFound[i].URL)
+			// TODO: filter after opening
 			s.prevFound = append(s.prevFound[:i], s.prevFound[i+1:]...)
 		}
 
@@ -196,6 +220,7 @@ func (s *S) Process(cmd string) (err error) {
 		for path, payload := range s.data {
 			save(path, payload)
 		}
+		os.Exit(0)
 	case "exit":
 		fmt.Println("Exiting program")
 		os.Exit(0)
