@@ -132,6 +132,7 @@ func (s *S) Process(cmd string) (err error) {
 	tokens := strings.SplitN(cmd, " ", 2)
 	fn := tokens[0]
 	limit := int(math.Min(float64(len(s.prevFound)), float64(s.limit)))
+	s.lastCmd = cmd
 
 	switch fn {
 	case "set":
@@ -150,33 +151,23 @@ func (s *S) Process(cmd string) (err error) {
 		search := tokens[1]
 		var found []Tab
 		for path, payload := range s.data {
-			full := false
-			for j, g := range payload.Groups {
-				var skipped []Tab
+			for _, g := range payload.Groups {
 				count := 0
-				for i, t := range g.Tabs {
+				for _, t := range g.Tabs {
 					if strings.Contains(t.URL, search) || strings.Contains(t.Title, search) {
 						found = append(found, t)
 						count++
-					} else {
-						skipped = append(skipped, t)
-					}
-					if len(found) >= s.limit {
-						full = true
-						skipped = append(skipped, g.Tabs[i+1:]...)
-						break
 					}
 				}
 				if count > 0 {
-					fmt.Printf("Found `%d` tabs in group `%s` [total=%d, skipped=%d]\n", count, g.Title, len(g.Tabs), len(skipped))
-					s.data[path].Groups[j].Tabs = skipped
+					fmt.Printf(
+						"Found `%d` tabs in group `%s` [total=%d path=%s]\n",
+						count,
+						g.Title,
+						len(g.Tabs),
+						path,
+					)
 				}
-				if full {
-					break
-				}
-			}
-			if full {
-				break
 			}
 		}
 		s.prevFound = found
@@ -193,12 +184,34 @@ func (s *S) Process(cmd string) (err error) {
 		fmt.Printf("cmd=%s size=%d limit=%d\n", cmd, len(s.prevFound), limit)
 
 		i := int(math.Min(float64(len(s.prevFound)), float64(limit))) - 1
+
+		prev := &s.prevFound
+		opened := make([]string, 0, len(*prev))
 		for ; i >= 0; i-- {
-			fmt.Println(s.prevFound[i].URL)
-			open(s.prevFound[i].URL)
-			// TODO: filter after opening
-			s.prevFound = append(s.prevFound[:i], s.prevFound[i+1:]...)
+			u := (*prev)[i].URL
+			fmt.Println(u)
+			open(u)
+			opened = append(opened, u)
+			(*prev) = append((*prev)[:i], (*prev)[i+1:]...)
 		}
+
+		defer func() {
+			if len(opened) == 0 {
+				return
+			}
+			for path, payload := range s.data {
+				for j, group := range payload.Groups {
+					Tabs := group.Tabs
+					for i := len(Tabs) - 1; i >= 0; i-- {
+						tab := Tabs[i]
+						if slices.Contains(opened, tab.URL) {
+							Tabs = append(Tabs[:i], Tabs[i+1:]...)
+						}
+					}
+					s.data[path].Groups[j].Tabs = Tabs
+				}
+			}
+		}()
 
 	case "list":
 		fmt.Printf("cmd=%s size=%d\n", cmd, len(s.prevFound))
