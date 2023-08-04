@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,9 +18,14 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var path = flag.String("p", ".", "path")
+var (
+	path = flag.String("p", ".", "path")
 
-var r = regexp.MustCompile(`\[(.*)\]`)
+	r   = regexp.MustCompile(`\[(.*)\]`)
+	xdg = NewOpener()
+)
+
+const filenamePrefix = "manual-stg-"
 
 func main() {
 	flag.Parse()
@@ -36,12 +38,7 @@ func main() {
 		return
 	}
 
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
-	}
-
-	t := S{data: data, limit: 10, files: keys}
+	t := S{data: data, limit: 10}
 
 	go t.Console()
 
@@ -50,17 +47,18 @@ func main() {
 	log.Printf("Caught signal %v\n", sig)
 }
 
-func loadFiles(path *string) (files map[string]STGPayload, err error) {
+func loadFiles(path *string) (files map[string]Data, err error) {
 	dir, err := os.ReadDir(filepath.Clean(*path))
 	if err != nil {
 		return nil, err
 	}
 
-	files = make(map[string]STGPayload)
+	files = make(map[string]Data)
+	// keys = make(map[string]bool, len(files))
 	for _, entry := range dir {
 		name := entry.Name()
 		ext := filepath.Ext(name)
-		if entry.Type().IsRegular() && strings.HasPrefix(name, "manual-stg-") && ext == ".json" {
+		if entry.Type().IsRegular() && strings.HasPrefix(name, filenamePrefix) && ext == ".json" {
 			path := filepath.Clean(*path + "/" + name)
 			content, err := ioutil.ReadFile(path)
 			if err != nil {
@@ -76,11 +74,11 @@ func loadFiles(path *string) (files map[string]STGPayload, err error) {
 			// simple filter by group id found inside brackets []
 			match := r.FindStringSubmatch(name)
 			if len(match) == 2 {
-				var allowedGroups []int
+				var allowedGroups Arr[int]
 				for _, x := range strings.Split(match[1], " ") {
 					id, err := strconv.ParseInt(x, 10, 0)
 					if err == nil {
-						allowedGroups = append(allowedGroups, int(id))
+						allowedGroups.Append(int(id))
 					}
 				}
 
@@ -92,29 +90,34 @@ func loadFiles(path *string) (files map[string]STGPayload, err error) {
 				}
 			}
 
-			files[path] = payload
+			files[path] = Data{payload, false}
 		}
 	}
 
 	return
 }
 
-func save(path string, payload STGPayload) {
+func saveFiles(path string, payload STGPayload) {
 	file, _ := json.MarshalIndent(payload, "", "    ")
 	_ = ioutil.WriteFile(path, file, 0o644)
 }
 
+type Data struct {
+	payload  STGPayload
+	modified bool
+}
+
 type S struct {
-	data      map[string]STGPayload
-	files     []string
-	lastCmd   string
-	limit     int
-	prevFound []Tab
+	data  map[string]Data
+	limit int
+	found []Tab
+	size  int
+	// lastCmd   string
 }
 
 func (s *S) Console() {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("> ")
+	fmt.Print("\n> ")
 	cmd, err := reader.ReadString('\n')
 	if err != nil {
 		log.Fatal(err)
@@ -129,33 +132,35 @@ func (s *S) Console() {
 }
 
 func (s *S) Process(cmd string) (err error) {
-	tokens := strings.SplitN(cmd, " ", 2)
-	fn := tokens[0]
-	limit := int(math.Min(float64(len(s.prevFound)), float64(s.limit)))
-	s.lastCmd = cmd
+	tok0, tok1, tok2 := tokenize(cmd)
+	limit := min(s.size, s.limit)
 
-	switch fn {
+	var consumed Arr[string]
+
+	switch tok0 {
 	case "set":
-		tokens = strings.SplitN(tokens[1], " ", 2)
-		subfn := tokens[0]
-		switch subfn {
+		switch tok1 {
 		case "limit":
-			limit, _ := strconv.ParseInt(tokens[1], 10, 0)
-			s.limit = int(limit)
+			limit, err := strconv.ParseInt(tok2, 10, 0)
+			if err == nil {
+				s.limit = int(limit)
+			}
 		}
 
+	case "f":
+		fallthrough
 	case "find":
-		if len(tokens) == 1 {
+		if tok1 == "" {
 			return
 		}
-		search := tokens[1]
-		var found []Tab
-		for path, payload := range s.data {
-			for _, g := range payload.Groups {
+		var found Arr[Tab]
+		search := strings.SplitN(string(cmd), " ", 2)[1]
+		for path, data := range s.data {
+			for _, g := range data.payload.Groups {
 				count := 0
 				for _, t := range g.Tabs {
 					if strings.Contains(t.URL, search) || strings.Contains(t.Title, search) {
-						found = append(found, t)
+						found.Append(t)
 						count++
 					}
 				}
@@ -170,68 +175,64 @@ func (s *S) Process(cmd string) (err error) {
 				}
 			}
 		}
-		s.prevFound = found
+		s.found = found
+		s.size = len(found)
 
 	case "open":
-		if len(tokens) == 2 {
-			if l, err := strconv.ParseInt(tokens[1], 10, 0); err == nil {
-				if l > 0 {
-					limit = int(l)
-				}
-			}
+		if s.size == 0 {
+			return
 		}
 
-		fmt.Printf("cmd=%s size=%d limit=%d\n", cmd, len(s.prevFound), limit)
+		if l, err := strconv.ParseInt(tok1, 10, 0); err == nil {
+			limit = int(l)
+		}
 
-		i := int(math.Min(float64(len(s.prevFound)), float64(limit))) - 1
-
-		prev := &s.prevFound
-		opened := make([]string, 0, len(*prev))
-		for ; i >= 0; i-- {
-			u := (*prev)[i].URL
+		max := min(s.size, limit)
+		found := &s.found
+		for i := 0; i < max; i++ {
+			u := (*found)[i].URL
 			fmt.Println(u)
-			open(u)
-			opened = append(opened, u)
-			(*prev) = append((*prev)[:i], (*prev)[i+1:]...)
+			xdg.Open(u)
+			consumed.Append(u)
+		}
+		*found = (*found)[max:]
+		s.size = len(*found)
+		defer s.RemoveTabs(consumed)
+
+	case "remove":
+		if s.size == 0 {
+			return
 		}
 
-		defer func() {
-			if len(opened) == 0 {
-				return
-			}
-			for path, payload := range s.data {
-				for j, group := range payload.Groups {
-					Tabs := group.Tabs
-					for i := len(Tabs) - 1; i >= 0; i-- {
-						tab := Tabs[i]
-						if slices.Contains(opened, tab.URL) {
-							Tabs = append(Tabs[:i], Tabs[i+1:]...)
-						}
-					}
-					s.data[path].Groups[j].Tabs = Tabs
-				}
-			}
-		}()
+		for _, x := range s.found {
+			consumed.Append(x.URL)
+		}
 
+		s.found = nil
+		s.size = 0
+		fmt.Println("Cleaned search list")
+		defer s.RemoveTabs(consumed)
+
+	case "s":
+		fallthrough
+	case "show":
+		fallthrough
 	case "list":
-		fmt.Printf("cmd=%s size=%d\n", cmd, len(s.prevFound))
-		var subfn string
-		if len(tokens) > 1 {
-			subfn = tokens[1]
-		}
-		switch subfn {
+		switch tok1 {
 		case "files":
-			for _, x := range s.files {
-				fmt.Println(x)
+			for path := range s.data {
+				fmt.Println(path)
 			}
 		default:
-			for _, x := range s.prevFound {
+			for _, x := range s.found {
 				fmt.Println(x.URL, x.Title)
 			}
 		}
 	case "save":
-		for path, payload := range s.data {
-			save(path, payload)
+		for path, data := range s.data {
+			if data.modified {
+				saveFiles(path, data.payload)
+			}
 		}
 		os.Exit(0)
 	case "exit":
@@ -244,19 +245,24 @@ func (s *S) Process(cmd string) (err error) {
 	return
 }
 
-func open(url string) error {
-	var cmd string
-	var args []string
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler"}
-	case "darwin":
-		cmd = "open"
-	default: // linux freebsd openbsd netbsd
-		cmd = "xdg-open"
+func (s *S) RemoveTabs(o []string) {
+	if len(o) == 0 {
+		return
 	}
-	args = append(args, url)
-	return exec.Command(cmd, args...).Start()
+	for path, data := range s.data {
+		for j, group := range data.payload.Groups {
+			Tabs := group.Tabs
+			for i := len(Tabs) - 1; i >= 0; i-- {
+				tab := Tabs[i]
+				if slices.Contains(o, tab.URL) {
+					popitem(&Tabs, i)
+					if !data.modified {
+						data.modified = true
+					}
+				}
+			}
+			data.payload.Groups[j].Tabs = Tabs
+		}
+		s.data[path] = data
+	}
 }
