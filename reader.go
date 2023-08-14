@@ -97,22 +97,9 @@ func loadFiles(path *string) (files map[string]Data, err error) {
 	return
 }
 
-func saveFiles(path string, payload STGPayload) {
+func saveFiles(path string, payload STGPayload) error {
 	file, _ := json.MarshalIndent(payload, "", "    ")
-	_ = ioutil.WriteFile(path, file, 0o644)
-}
-
-type Data struct {
-	payload  STGPayload
-	modified bool
-}
-
-type S struct {
-	data  map[string]Data
-	limit int
-	found []Tab
-	size  int
-	// lastCmd   string
+	return ioutil.WriteFile(path, file, 0o644)
 }
 
 func (s *S) Console() {
@@ -154,13 +141,14 @@ func (s *S) Process(cmd string) (err error) {
 			return
 		}
 		var found Arr[Tab]
-		search := strings.SplitN(string(cmd), " ", 2)[1]
+		search := strings.ToLower(strings.SplitN(cmd, " ", 2)[1])
 		for path, data := range s.data {
 			for _, g := range data.payload.Groups {
 				count := 0
 				for _, t := range g.Tabs {
-					if strings.Contains(t.URL, search) || strings.Contains(t.Title, search) {
+					if strings.Contains(strings.ToLower(t.URL+t.Title), search) {
 						found.Append(t)
+						fmt.Println(t.URL, t.Title)
 						count++
 					}
 				}
@@ -231,7 +219,10 @@ func (s *S) Process(cmd string) (err error) {
 	case "save":
 		for path, data := range s.data {
 			if data.modified {
-				saveFiles(path, data.payload)
+				if err := saveFiles(path, data.payload); err != nil {
+					panic(err)
+				}
+				fmt.Printf("saved: %s\n", path)
 			}
 		}
 		os.Exit(0)
@@ -265,4 +256,31 @@ func (s *S) RemoveTabs(o []string) {
 		}
 		s.data[path] = data
 	}
+}
+
+type Tab struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	ID    int    `json:"id"`
+}
+
+type STGPayload struct {
+	Version string `json:"version"`
+	Groups  []struct {
+		ID    int    `json:"id"`
+		Title string `json:"title"`
+		Tabs  []Tab  `json:"tabs"`
+	} `json:"groups"`
+}
+
+type Data struct {
+	payload  STGPayload
+	modified bool
+}
+
+type S struct {
+	data  map[string]Data
+	limit int
+	found []Tab
+	size  int
 }

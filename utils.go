@@ -53,6 +53,6 @@ func tokenize[T ~string](cmd T) (T, T, T) {
 }
 
 // math.Min wrapper
-func min(x, y int) int {
-	return int(math.Min(float64(x), float64(y)))
+func min[T int | int8 | int16 | int32 | int64](x, y T) T {
+	return T(math.Min(float64(x), float64(y)))
 }
