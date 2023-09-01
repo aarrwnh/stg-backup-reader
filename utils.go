@@ -1,13 +1,11 @@
 package main
 
 import (
-	"math"
 	"os/exec"
 	"runtime"
 	"strings"
 )
 
-//
 type Opener struct {
 	cmd  string
 	args []string
@@ -33,26 +31,18 @@ func NewOpener() Opener {
 	return Opener{cmd, args}
 }
 
-//
 type Arr[T any] []T
 
 func (s *Arr[T]) Append(u T) {
 	*s = append(*s, u)
 }
 
-//
 func popitem[T any](s *[]T, i int) {
 	*s = append((*s)[:i], (*s)[i+1:]...)
 }
 
-//
 func tokenize[T ~string](cmd T) (T, T, T) {
 	r := make([]string, 3)
 	copy(r, strings.Split(string(cmd), " "))
 	return T(r[0]), T(r[1]), T(r[2])
-}
-
-// math.Min wrapper
-func min[T int | int8 | int16 | int32 | int64](x, y T) T {
-	return T(math.Min(float64(x), float64(y)))
 }

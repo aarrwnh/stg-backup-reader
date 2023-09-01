@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -27,9 +26,11 @@ var (
 
 const filenamePrefix = "manual-stg-"
 
-func main() {
+func init() {
 	flag.Parse()
+}
 
+func main() {
 	cancelChan := make(chan os.Signal, 1)
 	signal.Notify(cancelChan, syscall.SIGTERM, syscall.SIGINT)
 
@@ -60,7 +61,7 @@ func loadFiles(path *string) (files map[string]Data, err error) {
 		ext := filepath.Ext(name)
 		if entry.Type().IsRegular() && strings.HasPrefix(name, filenamePrefix) && ext == ".json" {
 			path := filepath.Clean(*path + "/" + name)
-			content, err := ioutil.ReadFile(path)
+			content, err := os.ReadFile(path)
 			if err != nil {
 				log.Fatal("can't read file", err)
 			}
@@ -99,7 +100,7 @@ func loadFiles(path *string) (files map[string]Data, err error) {
 
 func saveFiles(path string, payload STGPayload) error {
 	file, _ := json.MarshalIndent(payload, "", "    ")
-	return ioutil.WriteFile(path, file, 0o644)
+	return os.WriteFile(path, file, 0o644)
 }
 
 func (s *S) Console() {
