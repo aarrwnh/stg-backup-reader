@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,7 +33,10 @@ func init() {
 
 func main() {
 	cancelChan := make(chan os.Signal, 1)
-	signal.Notify(cancelChan, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(cancelChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	ctx := context.Background()
+	ctx, cancelFunc := context.WithCancel(ctx)
 
 	data, err := loadFiles(path)
 	if err != nil {
@@ -41,7 +45,16 @@ func main() {
 
 	t := S{data: data, limit: 10}
 
-	go t.Console()
+	f := func() {
+		select {
+		case sig := <-cancelChan:
+			log.Printf("Caught signal %v\n", sig)
+			cancelFunc()
+		case <-ctx.Done():
+		}
+	}
+
+	go t.Console(f)
 
 	// TODO:
 	sig := <-cancelChan
@@ -91,7 +104,8 @@ func loadFiles(path *string) (files map[string]Data, err error) {
 				}
 			}
 
-			files[path] = Data{payload, false}
+			var flag bool
+			files[path] = Data{payload, &flag}
 		}
 	}
 
@@ -103,7 +117,7 @@ func saveFiles(path string, payload STGPayload) error {
 	return os.WriteFile(path, file, 0o644)
 }
 
-func (s *S) Console() {
+func (s *S) Console(f func()) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("\n> ")
 	cmd, err := reader.ReadString('\n')
@@ -116,7 +130,7 @@ func (s *S) Console() {
 		log.Fatal(err)
 		return
 	}
-	s.Console()
+	s.Console(f)
 }
 
 func (s *S) Process(cmd string) (err error) {
@@ -155,7 +169,7 @@ func (s *S) Process(cmd string) (err error) {
 				}
 				if count > 0 {
 					fmt.Printf(
-						"Found `%d` tabs in group `%s` [total=%d path=%s]\n",
+						"\033[33m[Found `%d` tabs in group `%s` [total=%d path=%s]\033[0m\n",
 						count,
 						g.Title,
 						len(g.Tabs),
@@ -167,6 +181,8 @@ func (s *S) Process(cmd string) (err error) {
 		s.found = found
 		s.size = len(found)
 
+	case "o":
+		fallthrough
 	case "open":
 		if s.size == 0 {
 			return
@@ -219,14 +235,14 @@ func (s *S) Process(cmd string) (err error) {
 		}
 	case "save":
 		for path, data := range s.data {
-			if data.modified {
+			if *data.modified {
 				if err := saveFiles(path, data.payload); err != nil {
 					panic(err)
 				}
 				fmt.Printf("saved: %s\n", path)
+				*data.modified = false
 			}
 		}
-		os.Exit(0)
 	case "exit":
 		fmt.Println("Exiting program")
 		os.Exit(0)
@@ -248,8 +264,8 @@ func (s *S) RemoveTabs(o []string) {
 				tab := Tabs[i]
 				if slices.Contains(o, tab.URL) {
 					popitem(&Tabs, i)
-					if !data.modified {
-						data.modified = true
+					if !*data.modified {
+						*data.modified = true
 					}
 				}
 			}
@@ -276,7 +292,7 @@ type STGPayload struct {
 
 type Data struct {
 	payload  STGPayload
-	modified bool
+	modified *bool
 }
 
 type S struct {
