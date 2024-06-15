@@ -3,13 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,8 +22,6 @@ var (
 	r   = regexp.MustCompile(`\[(.*)\]`)
 	xdg = NewOpener()
 )
-
-const filenamePrefix = "manual-stg-"
 
 func init() {
 	flag.Parse()
@@ -43,14 +39,15 @@ func main() {
 		return
 	}
 
-	t := S{data: data, limit: 10}
+	t := Files{data: data, limit: 10}
 
 	f := func() {
 		select {
 		case sig := <-cancelChan:
-			log.Printf("Caught signal %v\n", sig)
+			log.Printf("\nCaught signal %v\n", sig)
 			cancelFunc()
 		case <-ctx.Done():
+		default:
 		}
 	}
 
@@ -58,71 +55,15 @@ func main() {
 
 	// TODO:
 	sig := <-cancelChan
-	log.Printf("Caught signal %v\n", sig)
+	log.Printf("                       Caught signal %v\n", sig)
 }
 
-func loadFiles(path *string) (files map[string]Data, err error) {
-	dir, err := os.ReadDir(filepath.Clean(*path))
-	if err != nil {
-		return nil, err
-	}
-
-	files = make(map[string]Data)
-	// keys = make(map[string]bool, len(files))
-	for _, entry := range dir {
-		name := entry.Name()
-		ext := filepath.Ext(name)
-		if entry.Type().IsRegular() && strings.HasPrefix(name, filenamePrefix) && ext == ".json" {
-			path := filepath.Clean(*path + "/" + name)
-			content, err := os.ReadFile(path)
-			if err != nil {
-				log.Fatal("can't read file", err)
-			}
-
-			var payload STGPayload
-			err = json.Unmarshal(content, &payload)
-			if err != nil {
-				log.Fatal("Error during Unmarshal()", err)
-			}
-
-			// simple filter by group id found inside brackets []
-			match := r.FindStringSubmatch(name)
-			if len(match) == 2 {
-				var allowedGroups Arr[int]
-				for _, x := range strings.Split(match[1], " ") {
-					id, err := strconv.ParseInt(x, 10, 0)
-					if err == nil {
-						allowedGroups.Append(int(id))
-					}
-				}
-
-				g := &payload.Groups
-				for i := len(*g) - 1; i >= 0; i-- {
-					if !slices.Contains(allowedGroups, (*g)[i].ID) {
-						(*g) = append((*g)[:i], (*g)[i+1:]...)
-					}
-				}
-			}
-
-			var flag bool
-			files[path] = Data{payload, &flag}
-		}
-	}
-
-	return
-}
-
-func saveFiles(path string, payload STGPayload) error {
-	file, _ := json.MarshalIndent(payload, "", "    ")
-	return os.WriteFile(path, file, 0o644)
-}
-
-func (s *S) Console(f func()) {
+func (s *Files) Console(f func()) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("\n> ")
 	cmd, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("no command: ", err)
 		return
 	}
 	err = s.Process(strings.Trim(cmd, "\n\r"))
@@ -130,10 +71,11 @@ func (s *S) Console(f func()) {
 		log.Fatal(err)
 		return
 	}
+	f()
 	s.Console(f)
 }
 
-func (s *S) Process(cmd string) (err error) {
+func (s *Files) Process(cmd string) (err error) {
 	tok0, tok1, tok2 := tokenize(cmd)
 	limit := min(s.size, s.limit)
 
@@ -161,7 +103,10 @@ func (s *S) Process(cmd string) (err error) {
 			for _, g := range data.payload.Groups {
 				count := 0
 				for _, t := range g.Tabs {
-					if strings.Contains(strings.ToLower(t.URL+t.Title), search) {
+					if strings.Contains(
+						strings.ToLower(t.URL+t.Title),
+						search,
+					) {
 						found.Append(t)
 						fmt.Println(t.URL, t.Title)
 						count++
@@ -169,11 +114,11 @@ func (s *S) Process(cmd string) (err error) {
 				}
 				if count > 0 {
 					fmt.Printf(
-						"\033[33m[Found `%d` tabs in group `%s` [total=%d path=%s]\033[0m\n",
+						"\033[33m[Found `%d` tabs in group `%s` [total=%d file=%s]\033[0m\n",
 						count,
 						g.Title,
 						len(g.Tabs),
-						path,
+						path.name,
 					)
 				}
 			}
@@ -218,16 +163,20 @@ func (s *S) Process(cmd string) (err error) {
 		fmt.Println("Cleaned search list")
 		defer s.RemoveTabs(consumed)
 
-	case "s":
-		fallthrough
-	case "show":
-		fallthrough
-	case "list":
+	case "s", "show", "list":
 		switch tok1 {
 		case "files":
+			var total int
 			for path := range s.data {
-				fmt.Println(path)
+				var entries int
+				g := s.data[path].payload.Groups
+				for i := range g {
+					entries += len(g[i].Tabs)
+				}
+				fmt.Printf("%7d  %s\n", entries, path.name)
+				total += entries
 			}
+			fmt.Printf("%7d\n", total)
 		default:
 			for _, x := range s.found {
 				fmt.Println(x.URL, x.Title)
@@ -236,24 +185,26 @@ func (s *S) Process(cmd string) (err error) {
 	case "save":
 		for path, data := range s.data {
 			if *data.modified {
-				if err := saveFiles(path, data.payload); err != nil {
+				if err := saveFiles(path.path, data.payload); err != nil {
 					panic(err)
 				}
-				fmt.Printf("saved: %s\n", path)
+				fmt.Printf("saved: %s\n", path.name)
 				*data.modified = false
 			}
 		}
-	case "exit":
+	case "x", "exit":
 		fmt.Println("Exiting program")
 		os.Exit(0)
-	case "clear":
+
+	// TODO: map to keypress
+	case "c", "clear":
 		fmt.Print("\033[H\033[2J")
 	}
 
 	return
 }
 
-func (s *S) RemoveTabs(o []string) {
+func (s *Files) RemoveTabs(o []string) {
 	if len(o) == 0 {
 		return
 	}
@@ -273,31 +224,4 @@ func (s *S) RemoveTabs(o []string) {
 		}
 		s.data[path] = data
 	}
-}
-
-type Tab struct {
-	URL   string `json:"url"`
-	Title string `json:"title"`
-	ID    int    `json:"id"`
-}
-
-type STGPayload struct {
-	Version string `json:"version"`
-	Groups  []struct {
-		ID    int    `json:"id"`
-		Title string `json:"title"`
-		Tabs  []Tab  `json:"tabs"`
-	} `json:"groups"`
-}
-
-type Data struct {
-	payload  STGPayload
-	modified *bool
-}
-
-type S struct {
-	data  map[string]Data
-	limit int
-	found []Tab
-	size  int
 }
