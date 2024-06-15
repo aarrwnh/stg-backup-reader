@@ -41,8 +41,8 @@ func (s *Arr[T]) Remove(i int) {
 	*s = append((*s)[:i], (*s)[i+1:]...)
 }
 
-func popitem[T any](s *[]T, i int) {
-	*s = append((*s)[:i], (*s)[i+1:]...)
+func (s *Arr[T]) Clear() {
+	*s = nil
 }
 
 func tokenize[T ~string](cmd T) (T, T, T) {

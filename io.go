@@ -75,21 +75,22 @@ type Tab struct {
 	ID    int    `json:"id"`
 }
 
-func (t Tab) Contains(query string) bool {
+func (t *Tab) Contains(query string) bool {
 	return strings.Contains(strings.ToLower(t.URL+t.Title), query)
 }
 
 type STGPayload struct {
 	Version string `json:"version"`
 	Groups  []struct {
-		ID    int    `json:"id"`
-		Title string `json:"title"`
-		Tabs  []Tab  `json:"tabs"`
+		ID    int      `json:"id"`
+		Title string   `json:"title"`
+		Tabs  Arr[Tab] `json:"tabs"`
 	} `json:"groups"`
 }
 
 type Data struct {
-	payload  STGPayload
+	payload STGPayload
+	// marker indicating if a file needs to be flushed to disk
 	modified *bool
 }
 
@@ -103,4 +104,6 @@ type Files struct {
 	limit int
 	found []Tab
 	size  int
+
+	consumed Arr[string]
 }

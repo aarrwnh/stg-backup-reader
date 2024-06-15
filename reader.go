@@ -79,124 +79,22 @@ func (s *Files) Process(cmd string) (err error) {
 	tok0, tok1, tok2 := tokenize(cmd)
 	limit := min(s.size, s.limit)
 
-	var consumed Arr[string]
-
 	switch tok0 {
 	case "set":
-		switch tok1 {
-		case "limit":
-			limit, err := strconv.ParseInt(tok2, 10, 0)
-			if err == nil {
-				s.limit = int(limit)
-			}
-		}
-
-	case "f":
-		fallthrough
-	case "find":
-		if tok1 == "" {
-			return
-		}
-		var found Arr[Tab]
-		search := strings.ToLower(strings.SplitN(cmd, " ", 2)[1])
-		for path, data := range s.data {
-			for _, g := range data.payload.Groups {
-				count := 0
-				for _, t := range g.Tabs {
-					if strings.Contains(
-						strings.ToLower(t.URL+t.Title),
-						search,
-					) {
-						found.Append(t)
-						fmt.Println(t.URL, t.Title)
-						count++
-					}
-				}
-				if count > 0 {
-					fmt.Printf(
-						"\033[33m[Found `%d` tabs in group `%s` [total=%d file=%s]\033[0m\n",
-						count,
-						g.Title,
-						len(g.Tabs),
-						path.name,
-					)
-				}
-			}
-		}
-		s.found = found
-		s.size = len(found)
-
-	case "o":
-		fallthrough
-	case "open":
-		if s.size == 0 {
-			return
-		}
-
-		if l, err := strconv.ParseInt(tok1, 10, 0); err == nil {
-			limit = int(l)
-		}
-
-		max := min(s.size, limit)
-		found := &s.found
-		for i := 0; i < max; i++ {
-			u := (*found)[i].URL
-			fmt.Println(u)
-			xdg.Open(u)
-			consumed.Append(u)
-		}
-		*found = (*found)[max:]
-		s.size = len(*found)
-		defer s.RemoveTabs(consumed)
-
+		s.Set(&tok1, &tok2)
+	case "f", "find":
+		s.FindTabs(&tok1, cmd)
+	case "o", "open":
+		s.OpenTabs(&tok1, limit)
 	case "remove":
-		if s.size == 0 {
-			return
-		}
-
-		for _, x := range s.found {
-			consumed.Append(x.URL)
-		}
-
-		s.found = nil
-		s.size = 0
-		fmt.Println("Cleaned search list")
-		defer s.RemoveTabs(consumed)
-
+		s.ForceRemove()
 	case "s", "show", "list":
-		switch tok1 {
-		case "files":
-			var total int
-			for path := range s.data {
-				var entries int
-				g := s.data[path].payload.Groups
-				for i := range g {
-					entries += len(g[i].Tabs)
-				}
-				fmt.Printf("%7d  %s\n", entries, path.name)
-				total += entries
-			}
-			fmt.Printf("%7d\n", total)
-		default:
-			for _, x := range s.found {
-				fmt.Println(x.URL, x.Title)
-			}
-		}
+		s.ShowCurrent(&tok1)
 	case "save":
-		for path, data := range s.data {
-			if *data.modified {
-				if err := saveFiles(path.path, data.payload); err != nil {
-					panic(err)
-				}
-				fmt.Printf("saved: %s\n", path.name)
-				*data.modified = false
-			}
-		}
+		s.SaveTabs()
 	case "x", "exit":
 		fmt.Println("Exiting program")
 		os.Exit(0)
-
-	// TODO: map to keypress
 	case "c", "clear":
 		fmt.Print("\033[H\033[2J")
 	}
@@ -204,24 +102,135 @@ func (s *Files) Process(cmd string) (err error) {
 	return
 }
 
-func (s *Files) RemoveTabs(o []string) {
-	if len(o) == 0 {
+func (s *Files) Set(token1, token2 *string) {
+	switch *token1 {
+	case "limit":
+		limit, err := strconv.ParseInt(*token2, 10, 0)
+		if err == nil {
+			s.limit = int(limit)
+		}
+	}
+}
+
+func (s *Files) FindTabs(token *string, cmd string) {
+	if *token == "" {
 		return
 	}
+	var found Arr[Tab]
+	query := strings.ToLower(strings.SplitN(cmd, " ", 2)[1])
 	for path, data := range s.data {
+		for _, g := range data.payload.Groups {
+			count := 0
+			for _, t := range g.Tabs {
+				if t.Contains(query) {
+					found.Append(t)
+					fmt.Println(t.URL, t.Title)
+					count++
+				}
+			}
+			if count > 0 {
+				fmt.Printf(
+					"\033[33m[Found `%d` tabs in group `%s` [total=%d file=%s]\033[0m\n",
+					count,
+					g.Title,
+					len(g.Tabs),
+					path.name,
+				)
+			}
+		}
+	}
+	s.found = found
+	s.size = len(found)
+}
+
+func (s *Files) OpenTabs(token *string, limit int) {
+	if s.size == 0 {
+		return
+	}
+
+	if l, err := strconv.ParseInt(*token, 10, 0); err == nil {
+		limit = int(l)
+	}
+
+	_max := min(s.size, limit)
+	found := &s.found
+	for i := 0; i < _max; i++ {
+		u := (*found)[i].URL
+		fmt.Println(u)
+		xdg.Open(u)
+		s.consumed.Append(u)
+	}
+	*found = (*found)[_max:]
+	s.size = len(*found)
+	defer s.RemoveTabs()
+}
+
+func (s *Files) ForceRemove() {
+	if s.size == 0 {
+		return
+	}
+
+	for _, x := range s.found {
+		s.consumed.Append(x.URL)
+	}
+
+	s.found = nil
+	s.size = 0
+	fmt.Println("Cleaned search list")
+	defer s.RemoveTabs()
+}
+
+func (s *Files) ShowCurrent(token *string) {
+	switch *token {
+	case "files":
+		var total int
+		for path := range s.data {
+			var entries int
+			g := s.data[path].payload.Groups
+			for i := range g {
+				entries += len(g[i].Tabs)
+			}
+			fmt.Printf("%7d  %s\n", entries, path.name)
+			total += entries
+		}
+		fmt.Printf("%7d\n", total)
+	default:
+		for _, x := range s.found {
+			fmt.Println(x.URL, x.Title)
+		}
+	}
+}
+
+func (s *Files) SaveTabs() {
+	for path, data := range s.data {
+		if *data.modified {
+			if err := saveFiles(path.path, data.payload); err != nil {
+				panic(err)
+			}
+			fmt.Printf("saved: %s\n", path.name)
+			*data.modified = false
+		}
+	}
+}
+
+func (s *Files) RemoveTabs() {
+	if len(s.consumed) == 0 {
+		return
+	}
+	for _, data := range s.data {
 		for j, group := range data.payload.Groups {
-			Tabs := group.Tabs
-			for i := len(Tabs) - 1; i >= 0; i-- {
-				tab := Tabs[i]
-				if slices.Contains(o, tab.URL) {
-					popitem(&Tabs, i)
+			tabs := group.Tabs
+			for idx := len(tabs) - 1; idx >= 0; idx-- {
+				tab := tabs[idx]
+				if slices.Contains(s.consumed, tab.URL) {
+					tabs.Remove(idx)
 					if !*data.modified {
 						*data.modified = true
 					}
 				}
 			}
-			data.payload.Groups[j].Tabs = Tabs
+			data.payload.Groups[j].Tabs = tabs
 		}
-		s.data[path] = data
 	}
+	s.consumed.Clear()
 }
