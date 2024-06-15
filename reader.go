@@ -2,17 +2,15 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/exp/slices"
 )
 
@@ -28,12 +26,6 @@ func init() {
 }
 
 func main() {
-	cancelChan := make(chan os.Signal, 1)
-	signal.Notify(cancelChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-
-	ctx := context.Background()
-	ctx, cancelFunc := context.WithCancel(ctx)
-
 	data, err := loadFiles(path)
 	if err != nil {
 		return
@@ -41,21 +33,23 @@ func main() {
 
 	t := Files{data: data, limit: 10}
 
-	f := func() {
-		select {
-		case sig := <-cancelChan:
-			log.Printf("\nCaught signal %v\n", sig)
-			cancelFunc()
-		case <-ctx.Done():
-		default:
-		}
+	f, err := tea.LogToFile("degug.log", "debug")
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer f.Close()
 
-	go t.Console(f)
+	p := tea.NewProgram(
+		initialModel(t),
+		tea.WithAltScreen(), // use the full size of the terminal in its "alternate screen buffer"
+		// tea.WithMouseCellMotion(), // turn on mouse support so we can track the mouse wheel
+		// tea.WithMouseAllMotion(),
+	)
 
-	// TODO:
-	sig := <-cancelChan
-	log.Printf("                       Caught signal %v\n", sig)
+	if _, err := p.Run(); err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
 }
 
 func (s *Files) Console(f func()) {
@@ -103,10 +97,7 @@ func (s *Files) Process(cmd string) (err error) {
 			for _, g := range data.payload.Groups {
 				count := 0
 				for _, t := range g.Tabs {
-					if strings.Contains(
-						strings.ToLower(t.URL+t.Title),
-						search,
-					) {
+					if strings.Contains(strings.ToLower(t.URL+t.Title), search) {
 						found.Append(t)
 						fmt.Println(t.URL, t.Title)
 						count++

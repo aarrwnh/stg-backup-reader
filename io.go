@@ -73,6 +73,38 @@ type Tab struct {
 	URL   string `json:"url"`
 	Title string `json:"title"`
 	ID    int    `json:"id"`
+
+	// state for checkbox element
+	openable bool
+	// mark tab for removal from json file after opening in browser
+	done bool
+}
+
+func (t *Tab) SetOpenable() {
+	t.openable = true
+}
+
+func (t *Tab) ToggleOpenable() {
+	t.openable = !t.openable
+}
+
+func (t *Tab) Consume() {
+	t.done = true
+	t.openable = false
+}
+
+func (t Tab) Valid() bool {
+	return !t.done
+}
+
+func (t Tab) Open() {
+	if t.openable {
+		xdg.Open(t.URL)
+	}
+}
+
+func (t Tab) CanOpen() bool {
+	return t.openable
 }
 
 func (t Tab) Contains(query string) bool {
