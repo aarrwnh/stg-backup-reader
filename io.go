@@ -19,6 +19,7 @@ func loadFiles(path *string) (files map[Path]Data, err error) {
 		return nil, err
 	}
 
+	count := 0
 	files = make(map[Path]Data)
 	// keys = make(map[string]bool, len(files))
 	for _, entry := range dir {
@@ -58,8 +59,14 @@ func loadFiles(path *string) (files map[Path]Data, err error) {
 
 			var flag bool
 			files[Path{path, name}] = Data{payload, &flag}
+
+			for _, v := range *payload.Groups {
+				count += len(*v.Tabs)
+			}
 		}
 	}
+
+	log.Printf("\033[30mloaded %d tabs\033[0m", count)
 
 	return
 }
