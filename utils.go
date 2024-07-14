@@ -11,8 +11,8 @@ type Opener struct {
 	args []string
 }
 
-func (s *Opener) Open(url string) {
-	args := append(s.args, url)
+func (s *Opener) Open(url Url) {
+	args := append(s.args, string(url))
 	exec.Command(s.cmd, args...).Start()
 }
 

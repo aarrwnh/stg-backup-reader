@@ -34,7 +34,7 @@ func loadFiles(path *string) (files map[Path]Data, err error) {
 			var payload STGPayload
 			err = json.Unmarshal(content, &payload)
 			if err != nil {
-				log.Fatal("Error during Unmarshal()", err)
+				log.Fatal(err)
 			}
 
 			// simple filter by group id found inside brackets []
@@ -48,10 +48,10 @@ func loadFiles(path *string) (files map[Path]Data, err error) {
 					}
 				}
 
-				g := &payload.Groups
-				for i := len(*g) - 1; i >= 0; i-- {
-					if !slices.Contains(allowedGroups, (*g)[i].ID) {
-						(*g) = append((*g)[:i], (*g)[i+1:]...)
+				g := *payload.Groups
+				for i := len(g) - 1; i >= 0; i-- {
+					if !slices.Contains(allowedGroups, g[i].ID) {
+						g.Remove(i)
 					}
 				}
 			}
@@ -69,23 +69,25 @@ func saveFiles(path string, payload STGPayload) error {
 	return os.WriteFile(path, file, 0o644)
 }
 
+type Url string
+
 type Tab struct {
-	URL   string `json:"url"`
+	URL   Url    `json:"url"`
 	Title string `json:"title"`
 	ID    int    `json:"id"`
 }
 
 func (t *Tab) Contains(query string) bool {
-	return strings.Contains(strings.ToLower(t.URL+t.Title), query)
+	return strings.Contains(strings.ToLower(string(t.URL)+t.Title), query)
 }
 
 type STGPayload struct {
 	Version string `json:"version"`
-	Groups  []struct {
-		ID    int      `json:"id"`
-		Title string   `json:"title"`
-		Tabs  Arr[Tab] `json:"tabs"`
-	} `json:"groups"`
+	Groups  *Arr[struct {
+		ID    int       `json:"id"`
+		Title string    `json:"title"`
+		Tabs  *Arr[Tab] `json:"tabs"`
+	}] `json:"groups"`
 }
 
 type Data struct {
@@ -105,5 +107,5 @@ type Files struct {
 	found []Tab
 	size  int
 
-	consumed Arr[string]
+	consumed Arr[Url]
 }
