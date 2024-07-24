@@ -13,13 +13,12 @@ import (
 
 const filenamePrefix = "manual-stg-"
 
-func loadFiles(path *string) (files map[Path]Data, err error) {
+func loadFiles(path *string) (files map[Path]Data, count int, err error) {
 	dir, err := os.ReadDir(filepath.Clean(*path))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	count := 0
 	files = make(map[Path]Data)
 	// keys = make(map[string]bool, len(files))
 	for _, entry := range dir {
@@ -66,8 +65,6 @@ func loadFiles(path *string) (files map[Path]Data, err error) {
 		}
 	}
 
-	log.Printf("\033[30mloaded %d tabs\033[0m", count)
-
 	return
 }
 
@@ -113,6 +110,8 @@ type Files struct {
 	limit int
 	found []Tab
 	size  int
+
+	totalRemoved int
 
 	consumed Arr[Url]
 }

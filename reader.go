@@ -34,10 +34,12 @@ func main() {
 	ctx := context.Background()
 	ctx, cancelFunc := context.WithCancel(ctx)
 
-	data, err := loadFiles(path)
+	data, count, err := loadFiles(path)
 	if err != nil {
 		return
 	}
+
+	log.Printf("\033[30mloaded %d tabs\033[0m", count)
 
 	t := Files{data: data, limit: 10}
 
@@ -53,51 +55,60 @@ func main() {
 
 	go t.Console(f)
 
-	// TODO:
 	sig := <-cancelChan
-	log.Printf("                       Caught signal %v\n", sig)
+	log.Printf("Caught signal: %v\n", sig)
 }
 
 func (s *Files) Console(f func()) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("\n> ")
 
-	cmd, err := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatal("no command: ", err)
+		fmt.Println()
+		s.Quit()
+		log.Fatal(err)
 	}
 
-	err = s.Process(strings.Trim(cmd, "\n\r"))
+	err = s.Process(strings.Trim(input, "\n\r"))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	f()
-	s.Console(f)
+	go s.Console(f)
 }
 
-func (s *Files) Process(cmd string) (err error) {
-	tok0, tok1, tok2 := tokenize(cmd)
-	limit := min(s.size, s.limit)
+func (s *Files) Quit() {
+	log.Printf("removed %d tabs", s.totalRemoved)
+	log.Println("Exiting program")
+}
 
-	switch tok0 {
-	case "set":
-		s.Set(tok1, tok2)
-	case "f", "find":
-		s.FindTabs(tok1, cmd)
-	case "o", "open":
-		s.OpenTabs(tok1, limit)
-	case "remove", "rm":
-		s.ForceRemove()
-	case "s", "show", "list":
-		s.ShowCurrent(tok1)
-	case "save":
-		s.SaveTabs()
-	case "x", "exit":
-		fmt.Println("Exiting program")
-		os.Exit(0)
-	case "c", "clear":
-		fmt.Print("\033[H\033[2J")
+func (s *Files) Process(input string) (err error) {
+	cmd, subcmd, rest := tokenize(input)
+
+	if strings.HasPrefix(cmd, ":") {
+		switch strings.Replace(cmd, ":", "", 1) {
+		case "set":
+			s.Set(subcmd, rest)
+		case "f", "find":
+			s.FindTabs(strings.SplitN(input, " ", 2)[1])
+		case "o", "open":
+			s.OpenTabs(subcmd)
+		case "remove", "rm":
+			s.ForceRemove()
+		case "show", "list":
+			s.ShowCurrent(subcmd)
+		case "s", "save":
+			s.SaveTabs()
+		case "q", "quit", "exit":
+			s.Quit()
+			os.Exit(0)
+		case "c", "clear":
+			fmt.Print("\033[H\033[2J")
+		}
+	} else {
+		s.FindTabs(input)
 	}
 
 	return
@@ -112,12 +123,9 @@ func (s *Files) Set(token1, token2 string) {
 	}
 }
 
-func (s *Files) FindTabs(token string, cmd string) {
-	if token == "" {
-		return
-	}
+func (s *Files) FindTabs(query string) {
 	var found Arr[Tab]
-	query := strings.ToLower(strings.SplitN(cmd, " ", 2)[1])
+	query = strings.ToLower(query)
 	for path, data := range s.data {
 		for _, g := range *data.payload.Groups {
 			count := 0
@@ -143,11 +151,12 @@ func (s *Files) FindTabs(token string, cmd string) {
 	s.size = len(found)
 }
 
-func (s *Files) OpenTabs(token string, limit int) {
+func (s *Files) OpenTabs(token string) {
 	if s.size == 0 {
 		return
 	}
 
+	limit := min(s.size, s.limit)
 	if l, err := strconv.ParseInt(token, 10, 0); err == nil {
 		limit = int(l)
 	}
@@ -180,8 +189,8 @@ func (s *Files) ForceRemove() {
 	defer s.RemoveTabs()
 }
 
-func (s *Files) ShowCurrent(token string) {
-	switch token {
+func (s *Files) ShowCurrent(cmd string) {
+	switch cmd {
 	case "files":
 		var total int
 		for path := range s.data {
@@ -217,12 +226,14 @@ func (s *Files) RemoveTabs() {
 	if len(s.consumed) == 0 {
 		return
 	}
+	removed := 0
 	for _, data := range s.data {
 		for _, group := range *data.payload.Groups {
 			tabs := group.Tabs
 			for idx := len(*tabs) - 1; idx >= 0; idx-- {
 				if slices.Contains(s.consumed, (*tabs)[idx].URL) {
 					tabs.Remove(idx)
+					removed += 1
 					if !*data.modified {
 						*data.modified = true
 					}
@@ -230,5 +241,7 @@ func (s *Files) RemoveTabs() {
 			}
 		}
 	}
+
+	s.totalRemoved += removed
 	s.consumed.Clear()
 }

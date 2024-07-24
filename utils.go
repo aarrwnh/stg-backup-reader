@@ -45,8 +45,8 @@ func (s *Arr[T]) Clear() {
 	*s = nil
 }
 
-func tokenize[T ~string](cmd T) (T, T, T) {
+func tokenize[T ~string](input T) (T, T, T) {
 	r := make([]string, 3)
-	copy(r, strings.Split(string(cmd), " "))
+	copy(r, strings.Split(string(input), " "))
 	return T(r[0]), T(r[1]), T(r[2])
 }
