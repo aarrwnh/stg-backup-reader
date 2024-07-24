@@ -41,7 +41,7 @@ func main() {
 
 	log.Printf("\033[30mloaded %d tabs\033[0m", count)
 
-	t := Files{data: data, limit: 10}
+	t := App{data: data, limit: 10}
 
 	f := func() {
 		select {
@@ -59,7 +59,7 @@ func main() {
 	log.Printf("Caught signal: %v\n", sig)
 }
 
-func (s *Files) Console(f func()) {
+func (s *App) Console(f func()) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("\n> ")
 
@@ -79,12 +79,12 @@ func (s *Files) Console(f func()) {
 	go s.Console(f)
 }
 
-func (s *Files) Quit() {
+func (s *App) Quit() {
 	log.Printf("removed %d tabs", s.totalRemoved)
 	log.Println("Exiting program")
 }
 
-func (s *Files) Process(input string) (err error) {
+func (s *App) Process(input string) (err error) {
 	cmd, subcmd, rest := tokenize(input)
 
 	if strings.HasPrefix(cmd, ":") {
@@ -114,7 +114,7 @@ func (s *Files) Process(input string) (err error) {
 	return
 }
 
-func (s *Files) Set(token1, token2 string) {
+func (s *App) Set(token1, token2 string) {
 	switch token1 {
 	case "limit":
 		if limit, err := strconv.ParseInt(token2, 10, 0); err == nil {
@@ -123,9 +123,10 @@ func (s *Files) Set(token1, token2 string) {
 	}
 }
 
-func (s *Files) FindTabs(query string) {
+func (s *App) FindTabs(query string) {
 	var found Arr[Tab]
 	query = strings.ToLower(query)
+	fmt.Printf("%p", s.data)
 	for path, data := range s.data {
 		for _, g := range *data.payload.Groups {
 			count := 0
@@ -151,7 +152,7 @@ func (s *Files) FindTabs(query string) {
 	s.size = len(found)
 }
 
-func (s *Files) OpenTabs(token string) {
+func (s *App) OpenTabs(token string) {
 	if s.size == 0 {
 		return
 	}
@@ -174,7 +175,7 @@ func (s *Files) OpenTabs(token string) {
 	defer s.RemoveTabs()
 }
 
-func (s *Files) ForceRemove() {
+func (s *App) ForceRemove() {
 	if s.size == 0 {
 		return
 	}
@@ -189,7 +190,7 @@ func (s *Files) ForceRemove() {
 	defer s.RemoveTabs()
 }
 
-func (s *Files) ShowCurrent(cmd string) {
+func (s *App) ShowCurrent(cmd string) {
 	switch cmd {
 	case "files":
 		var total int
@@ -210,7 +211,7 @@ func (s *Files) ShowCurrent(cmd string) {
 	}
 }
 
-func (s *Files) SaveTabs() {
+func (s *App) SaveTabs() {
 	for path, data := range s.data {
 		if *data.modified {
 			if err := saveFiles(path.path, data.payload); err != nil {
@@ -222,7 +223,7 @@ func (s *Files) SaveTabs() {
 	}
 }
 
-func (s *Files) RemoveTabs() {
+func (s *App) RemoveTabs() {
 	if len(s.consumed) == 0 {
 		return
 	}

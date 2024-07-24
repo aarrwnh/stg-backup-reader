@@ -105,7 +105,7 @@ type Path struct {
 	name string
 }
 
-type Files struct {
+type App struct {
 	data  map[Path]Data
 	limit int
 	found []Tab
