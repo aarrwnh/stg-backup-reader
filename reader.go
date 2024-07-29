@@ -124,9 +124,12 @@ func (s *App) Set(token1, token2 string) {
 }
 
 func (s *App) FindTabs(query string) {
+	if len(query) <= 1 {
+		return
+	}
+
 	var found Arr[Tab]
 	query = strings.ToLower(query)
-	fmt.Printf("%p", s.data)
 	for path, data := range s.data {
 		for _, g := range *data.payload.Groups {
 			count := 0
