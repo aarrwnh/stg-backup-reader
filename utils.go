@@ -33,6 +33,10 @@ func NewOpener() Opener {
 
 type Arr[T any] []T
 
+func (s Arr[T]) Length() int {
+	return len(s)
+}
+
 func (s *Arr[T]) Append(u T) {
 	*s = append(*s, u)
 }

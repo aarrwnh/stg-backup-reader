@@ -152,7 +152,7 @@ func (s *App) FindTabs(query string) {
 		}
 	}
 	s.found = found
-	s.size = len(found)
+	s.size = found.Length()
 }
 
 func (s *App) OpenTabs(token string) {
