@@ -81,8 +81,8 @@ type Tab struct {
 	ID    int    `json:"id"`
 }
 
-func (t *Tab) Contains(query string) bool {
-	return strings.Contains(strings.ToLower(string(t.URL)+t.Title), query)
+func (t *Tab) Contains(pattern string) bool {
+	return strings.Contains(strings.ToLower(string(t.URL)+t.Title), strings.ToLower(pattern))
 }
 
 type STGPayload struct {

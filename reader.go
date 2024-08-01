@@ -123,6 +123,13 @@ func (s *App) Set(token1, token2 string) {
 	}
 }
 
+func highlightWord(pattern, line string) string {
+	start := strings.Index(strings.ToLower(line), strings.ToLower(pattern))
+	pattern = line[start : start+len(pattern)]
+	parts := strings.Split(line, pattern)
+	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")
+}
+
 func (s *App) FindTabs(query string) {
 	if len(query) <= 1 {
 		return
@@ -136,7 +143,8 @@ func (s *App) FindTabs(query string) {
 			for _, t := range *g.Tabs {
 				if t.Contains(query) {
 					found.Append(t)
-					fmt.Println(t.URL, t.Title)
+					line := highlightWord(query, string(t.URL)+" "+t.Title)
+					fmt.Println(line)
 					count++
 				}
 			}
