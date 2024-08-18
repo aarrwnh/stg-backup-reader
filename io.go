@@ -54,6 +54,7 @@ func loadFiles(path *string) (files map[Path]Data, count int, err error) {
 						g.Remove(i)
 					}
 				}
+				*payload.Groups = g
 			}
 
 			var flag bool
