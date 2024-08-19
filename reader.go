@@ -17,10 +17,10 @@ import (
 )
 
 var (
-	path = flag.String("p", ".", "path")
-
-	r   = regexp.MustCompile(`\[(.*)\]`)
-	xdg = NewOpener()
+	path      = flag.String("p", ".", "path")
+	groupId   = regexp.MustCompile("[(.*)]")
+	cmdPrefix = regexp.MustCompile("^[;:]")
+	xdg       = NewOpener()
 )
 
 func init() {
@@ -87,8 +87,8 @@ func (s *App) Quit() {
 func (s *App) Process(input string) (err error) {
 	cmd, subcmd, rest := tokenize(input)
 
-	if strings.HasPrefix(cmd, ":") {
-		switch strings.Replace(cmd, ":", "", 1) {
+	if cmdPrefix.MatchString(cmd) {
+		switch string(cmdPrefix.ReplaceAll([]byte(cmd), []byte(""))) {
 		case "set":
 			s.Set(subcmd, rest)
 		case "f", "find":

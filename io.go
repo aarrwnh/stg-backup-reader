@@ -38,7 +38,7 @@ func loadFiles(path *string) (files map[Path]Data, count int, err error) {
 			}
 
 			// simple filter by group id found inside brackets []
-			match := r.FindStringSubmatch(name)
+			match := groupId.FindStringSubmatch(name)
 			if len(match) == 2 {
 				var allowedGroups Arr[int]
 				for _, x := range strings.Split(match[1], " ") {
