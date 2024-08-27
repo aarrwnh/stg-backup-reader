@@ -23,11 +23,9 @@ var (
 	xdg       = NewOpener()
 )
 
-func init() {
-	flag.Parse()
-}
-
 func main() {
+	flag.Parse()
+
 	cancelChan := make(chan os.Signal, 1)
 	signal.Notify(cancelChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
@@ -52,6 +50,8 @@ func main() {
 		default:
 		}
 	}
+
+	go startWs(&t)
 
 	go t.Console(f)
 
@@ -80,7 +80,7 @@ func (s *App) Console(f func()) {
 }
 
 func (s *App) Quit() {
-	log.Printf("removed %d tabs", s.totalRemoved)
+	log.Printf("Removed %d tabs during session", s.totalRemoved)
 	log.Println("Exiting program")
 }
 
@@ -92,7 +92,7 @@ func (s *App) Process(input string) (err error) {
 		case "set":
 			s.Set(subcmd, rest)
 		case "f", "find":
-			s.FindTabs(strings.SplitN(input, " ", 2)[1])
+			s.FindTabs(strings.SplitN(input, " ", 2)[1], true)
 		case "o", "open":
 			s.OpenTabs(subcmd)
 		case "remove", "rm":
@@ -108,7 +108,7 @@ func (s *App) Process(input string) (err error) {
 			fmt.Print("\033[H\033[2J")
 		}
 	} else {
-		s.FindTabs(input)
+		s.FindTabs(input, true)
 	}
 
 	return
@@ -130,7 +130,7 @@ func highlightWord(pattern, line string) string {
 	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")
 }
 
-func (s *App) FindTabs(query string) {
+func (s *App) FindTabs(query string, printLines bool) {
 	if len(query) <= 1 {
 		return
 	}
@@ -144,7 +144,9 @@ func (s *App) FindTabs(query string) {
 				if t.Contains(query) {
 					found.Append(t)
 					line := highlightWord(query, string(t.URL)+" "+t.Title)
-					fmt.Println(line)
+					if printLines {
+						fmt.Println(line)
+					}
 					count++
 				}
 			}
@@ -183,7 +185,7 @@ func (s *App) OpenTabs(token string) {
 
 	s.found = s.found[_max:]
 	s.size = len(s.found)
-	defer s.RemoveTabs()
+	s.RemoveTabs()
 }
 
 func (s *App) ForceRemove() {
@@ -197,8 +199,7 @@ func (s *App) ForceRemove() {
 
 	s.found = nil
 	s.size = 0
-	fmt.Println("Cleaned search list")
-	defer s.RemoveTabs()
+	s.RemoveTabs()
 }
 
 func (s *App) ShowCurrent(cmd string) {
@@ -234,6 +235,7 @@ func (s *App) SaveTabs() {
 	}
 }
 
+// Remove currently found tabs from groups.
 func (s *App) RemoveTabs() {
 	if len(s.consumed) == 0 {
 		return
@@ -256,4 +258,6 @@ func (s *App) RemoveTabs() {
 
 	s.totalRemoved += removed
 	s.consumed.Clear()
+
+	fmt.Printf("Removed %d item/s\n", removed)
 }
