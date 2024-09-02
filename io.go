@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -115,4 +116,7 @@ type App struct {
 	totalRemoved int
 
 	consumed Arr[Url]
+
+	cancel      context.CancelFunc
+	wsConnected bool
 }

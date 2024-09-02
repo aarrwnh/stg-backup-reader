@@ -73,25 +73,15 @@ func expandHome(p string) string {
 	return path
 }
 
-// type Conn struct {
-// 	conn *websocket.Conn
-// }
-// func (c Conn) ReadMessage() (messageType int, p []byte, err error) { }
-
-func changeTitle(t string) {
-	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
-}
-
 func echo(conn *websocket.Conn, app *App) {
 	defer func() {
 		conn.Close()
-		// TODO: reset title after disconnect
-		changeTitle("")
+		app.wsConnected = false
+		app.UpdateTitle()
 	}()
 
-	var rxc, txc int
-
-	changeTitle("* connected")
+	app.wsConnected = true
+	app.UpdateTitle()
 
 	for {
 		time.Sleep(time.Millisecond * 500)
@@ -107,22 +97,19 @@ func echo(conn *websocket.Conn, app *App) {
 			break
 		}
 
-		rxc += 1
-		if data.Query != "" { // != "" does not work?
+		if data.Query != "" {
 			fmt.Printf("%s\n", data.Query)
 			app.FindTabs(data.Query, true)
 			fmt.Print("\n> ")
 
-			msg := MessageOut{Count: len(app.found), Id: data.Id}
+			msg := MessageOut{Count: app.size, Id: data.Id}
 			if err := conn.WriteJSON(msg); err != nil {
 				log.Println(err)
 				break
 			}
 
-			txc += 1
+			app.UpdateTitle()
 		}
-
-		changeTitle(fmt.Sprintf("* [rx:%d tx:%d]", rxc, txc))
 	}
 }
 

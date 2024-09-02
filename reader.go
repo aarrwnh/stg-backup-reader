@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/exp/slices"
 )
@@ -26,62 +28,71 @@ var (
 func main() {
 	flag.Parse()
 
-	cancelChan := make(chan os.Signal, 1)
-	signal.Notify(cancelChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-
-	ctx := context.Background()
-	ctx, cancelFunc := context.WithCancel(ctx)
-
 	data, count, err := loadFiles(path)
 	if err != nil {
 		return
 	}
-
 	log.Printf("\033[30mloaded %d tabs\033[0m", count)
 
-	t := App{data: data, limit: 10}
+	ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
 
-	f := func() {
-		select {
-		case sig := <-cancelChan:
-			log.Printf("\nCaught signal %v\n", sig)
-			cancelFunc()
-		case <-ctx.Done():
-		default:
-		}
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(interrupt)
+
+	app := App{data: data, limit: 10, cancel: cancel}
+
+	go startWs(&app)
+	go app.ConsoleTick()
+
+	select {
+	case <-ctx.Done():
+		log.Println("Exiting program")
+	case sig := <-interrupt:
+		log.Printf("Caught signal: %v\n", sig)
 	}
 
-	go startWs(&t)
-
-	go t.Console(f)
-
-	sig := <-cancelChan
-	log.Printf("Caught signal: %v\n", sig)
+	time.Sleep(time.Second * 1)
 }
 
-func (s *App) Console(f func()) {
+func setTitle(t string) {
+	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
+}
+
+func (s *App) UpdateTitle() {
+	var a string
+	if s.wsConnected {
+		a = " | *"
+	}
+	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.totalRemoved, a))
+}
+
+func (s *App) ConsoleTick() {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("\n> ")
+
+	s.UpdateTitle()
 
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Println()
+		log.Println(err)
 		s.Quit()
-		log.Fatal(err)
+		return
 	}
 
-	err = s.Process(strings.Trim(input, "\n\r"))
-	if err != nil {
-		log.Fatal(err)
+	if err := s.Process(strings.Trim(input, "\n\r")); err != nil {
+		return
 	}
 
-	f()
-	go s.Console(f)
+	s.ConsoleTick()
 }
 
-func (s *App) Quit() {
+func (s *App) Quit() error {
 	log.Printf("Removed %d tabs during session", s.totalRemoved)
-	log.Println("Exiting program")
+	s.cancel()
+	return errors.New("Exiting program")
 }
 
 func (s *App) Process(input string) (err error) {
@@ -95,15 +106,14 @@ func (s *App) Process(input string) (err error) {
 			s.FindTabs(strings.SplitN(input, " ", 2)[1], true)
 		case "o", "open":
 			s.OpenTabs(subcmd)
-		case "remove", "rm":
+		case "remove", "rm", "rem":
 			s.ForceRemove()
-		case "show", "list":
+		case "show", "list", "ls":
 			s.ShowCurrent(subcmd)
 		case "s", "save":
 			s.SaveTabs()
 		case "q", "quit", "exit":
-			s.Quit()
-			os.Exit(0)
+			err = s.Quit()
 		case "c", "clear":
 			fmt.Print("\033[H\033[2J")
 		}
