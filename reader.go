@@ -56,10 +56,6 @@ func main() {
 	time.Sleep(time.Second * 1)
 }
 
-func setTitle(t string) {
-	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
-}
-
 func (s *App) UpdateTitle() {
 	var a string
 	if s.wsConnected {
@@ -96,7 +92,7 @@ func (s *App) Quit() error {
 }
 
 func (s *App) Process(input string) (err error) {
-	cmd, subcmd, rest := tokenize(input)
+	cmd, subcmd, rest := commandParse(input)
 
 	if cmdPrefix.MatchString(cmd) {
 		switch string(cmdPrefix.ReplaceAll([]byte(cmd), []byte(""))) {
@@ -133,17 +129,12 @@ func (s *App) Set(token1, token2 string) {
 	}
 }
 
-func highlightWord(pattern, line string) string {
-	start := strings.Index(strings.ToLower(line), strings.ToLower(pattern))
-	pattern = line[start : start+len(pattern)]
-	parts := strings.Split(line, pattern)
-	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")
-}
-
 func (s *App) FindTabs(query string, printLines bool) {
 	if len(query) <= 1 {
 		return
 	}
+
+	defer timeTrack(time.Now())
 
 	var found Arr[Tab]
 	query = strings.ToLower(query)
@@ -153,16 +144,16 @@ func (s *App) FindTabs(query string, printLines bool) {
 			for _, t := range *g.Tabs {
 				if t.Contains(query) {
 					found.Append(t)
-					line := highlightWord(query, string(t.URL)+" "+t.Title)
 					if printLines {
+						line := highlightWord(query, string(t.URL)+" "+t.Title)
 						fmt.Println(line)
 					}
 					count++
 				}
 			}
 			if count > 0 {
-				fmt.Printf(
-					"\033[33m[Found `%d` tabs in group `%s` [total=%d file=%s]\033[0m\n",
+				printInfo(
+					"found `%d` tabs in group `%s` | %d | %s",
 					count,
 					g.Title,
 					len(*g.Tabs),
@@ -239,10 +230,11 @@ func (s *App) SaveTabs() {
 			if err := saveFiles(path.path, data.payload); err != nil {
 				panic(err)
 			}
-			fmt.Printf("saved: %s\n", path.name)
+			fmt.Printf("done: %s\n", path.name)
 			*data.modified = false
 		}
 	}
+	s.totalRemoved = 0
 }
 
 // Remove currently found tabs from groups.
@@ -269,5 +261,5 @@ func (s *App) RemoveTabs() {
 	s.totalRemoved += removed
 	s.consumed.Clear()
 
-	fmt.Printf("Removed %d item/s\n", removed)
+	printInfo("removed %d item/s", removed)
 }

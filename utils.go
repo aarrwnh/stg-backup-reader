@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Opener struct {
@@ -31,26 +34,30 @@ func NewOpener() Opener {
 	return Opener{cmd, args}
 }
 
-type Arr[T any] []T
-
-func (s Arr[T]) Length() int {
-	return len(s)
+func commandParse[T ~string](input T) (T, T, T) {
+	r := make([]T, 3)
+	for i, s := range strings.Split(string(input), " ") {
+		r[i] = T(s)
+	}
+	return r[0], r[1], r[2]
 }
 
-func (s *Arr[T]) Append(u T) {
-	*s = append(*s, u)
+func highlightWord(pattern, line string) string {
+	start := strings.Index(strings.ToLower(line), strings.ToLower(pattern))
+	pattern = line[start : start+len(pattern)]
+	parts := strings.Split(line, pattern)
+	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")
 }
 
-func (s *Arr[T]) Remove(i int) {
-	*s = append((*s)[:i], (*s)[i+1:]...)
+func setTitle(t string) {
+	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
 }
 
-func (s *Arr[T]) Clear() {
-	*s = nil
+func printInfo(format string, a ...any) {
+	fmt.Fprintf(os.Stdout, "\033[38;2;100;100;100m# %s\033[0m\n", fmt.Sprintf(format, a...))
 }
 
-func tokenize[T ~string](input T) (T, T, T) {
-	r := make([]string, 3)
-	copy(r, strings.Split(string(input), " "))
-	return T(r[0]), T(r[1]), T(r[2])
+func timeTrack(start time.Time) {
+	elapsed := time.Since(start)
+	printInfo("...%s", elapsed)
 }

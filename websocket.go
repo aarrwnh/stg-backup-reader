@@ -99,7 +99,7 @@ func echo(conn *websocket.Conn, app *App) {
 
 		if data.Query != "" {
 			fmt.Printf("%s\n", data.Query)
-			app.FindTabs(data.Query, true)
+			app.FindTabs(data.Query, false)
 			fmt.Print("\n> ")
 
 			msg := MessageOut{Count: app.size, Id: data.Id}
