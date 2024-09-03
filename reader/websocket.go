@@ -1,4 +1,4 @@
-package main
+package reader
 
 import (
 	"flag"
@@ -45,7 +45,7 @@ type MessageOut struct {
 	Id    int `json:"id"`
 }
 
-func startWs(app *App) {
+func StartWebsocket(app *App) {
 	if !ws {
 		return
 	}

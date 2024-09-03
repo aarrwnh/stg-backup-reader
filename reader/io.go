@@ -1,11 +1,11 @@
-package main
+package reader
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,7 +14,9 @@ import (
 
 const filenamePrefix = "manual-stg-"
 
-func loadFiles(path *string) (files map[Path]Data, count int, err error) {
+var groupId = regexp.MustCompile("[(.*)]")
+
+func LoadFiles(path *string) (files map[Path]Data, count int, err error) {
 	dir, err := os.ReadDir(filepath.Clean(*path))
 	if err != nil {
 		return nil, 0, err
@@ -75,10 +77,8 @@ func saveFiles(path string, payload STGPayload) error {
 	return os.WriteFile(path, file, 0o644)
 }
 
-type Url string
-
 type Tab struct {
-	URL   Url    `json:"url"`
+	URL   string `json:"url"`
 	Title string `json:"title"`
 	ID    int    `json:"id"`
 }
@@ -105,18 +105,4 @@ type Data struct {
 type Path struct {
 	path string
 	name string
-}
-
-type App struct {
-	data  map[Path]Data
-	limit int
-	found []Tab
-	size  int
-
-	totalRemoved int
-
-	consumed Arr[Url]
-
-	cancel      context.CancelFunc
-	wsConnected bool
 }

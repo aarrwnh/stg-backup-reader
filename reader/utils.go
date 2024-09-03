@@ -1,4 +1,4 @@
-package main
+package reader
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ type Opener struct {
 	args []string
 }
 
-func (s *Opener) Open(url Url) {
+func (s *Opener) Open(url string) {
 	args := append(s.args, string(url))
 	exec.Command(s.cmd, args...).Start()
 }
@@ -35,11 +35,9 @@ func NewOpener() Opener {
 }
 
 func commandParse[T ~string](input T) (T, T, T) {
-	r := make([]T, 3)
-	for i, s := range strings.Split(string(input), " ") {
-		r[i] = T(s)
-	}
-	return r[0], r[1], r[2]
+	r := make([]string, 3)
+	copy(r, strings.Split(string(input), " "))
+	return T(r[0]), T(r[1]), T(r[2])
 }
 
 func highlightWord(pattern, line string) string {

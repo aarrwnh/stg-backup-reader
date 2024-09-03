@@ -1,67 +1,46 @@
-package main
+package reader
 
 import (
 	"bufio"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/exp/slices"
 )
 
 var (
-	path      = flag.String("p", ".", "path")
-	groupId   = regexp.MustCompile("[(.*)]")
 	cmdPrefix = regexp.MustCompile("^[;:]")
 	xdg       = NewOpener()
 )
 
-func main() {
-	flag.Parse()
-
-	data, count, err := loadFiles(path)
-	if err != nil {
-		return
-	}
-	log.Printf("\033[30mloaded %d tabs\033[0m", count)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
-
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-	defer signal.Stop(interrupt)
-
-	app := App{data: data, limit: 10, cancel: cancel}
-
-	go startWs(&app)
-	go app.ConsoleTick()
-
-	select {
-	case <-ctx.Done():
-		log.Println("Exiting program")
-	case sig := <-interrupt:
-		log.Printf("Caught signal: %v\n", sig)
-	}
-
-	time.Sleep(time.Second * 1)
+type App struct {
+	data         map[Path]Data
+	limit        int
+	found        []Tab
+	size         int
+	totalRemoved int
+	consumed     Arr[string]
+	cancel       context.CancelFunc
+	wsConnected  bool
 }
 
-func (s *App) UpdateTitle() {
-	var a string
-	if s.wsConnected {
-		a = " | *"
+func NewApp(data map[Path]Data, limit int, cancel context.CancelFunc) App {
+	return App{
+		data:   data,
+		limit:  limit,
+		cancel: cancel,
 	}
-	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.totalRemoved, a))
+}
+
+func (s *App) Start() {
+	s.ConsoleTick()
 }
 
 func (s *App) ConsoleTick() {
@@ -262,4 +241,12 @@ func (s *App) RemoveTabs() {
 	s.consumed.Clear()
 
 	printInfo("removed %d item/s", removed)
+}
+
+func (s *App) UpdateTitle() {
+	var a string
+	if s.wsConnected {
+		a = " | *"
+	}
+	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.totalRemoved, a))
 }
