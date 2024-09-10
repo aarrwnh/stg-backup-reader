@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
-	"log"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -39,33 +41,61 @@ func NewApp(data map[Path]Data, limit int, cancel context.CancelFunc) App {
 	}
 }
 
-func (s *App) Start() {
-	s.ConsoleTick()
+var path = flag.String("p", ".", "path")
+
+func Start() {
+	flag.Parse()
+
+	data, count, err := LoadFiles(path)
+	if err != nil {
+		return
+	}
+	printInfo("loaded %d tabs", count)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
+
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(interrupt)
+
+	app := NewApp(data, 10, cancel)
+
+	go StartWebsocket(&app)
+	go app.run()
+
+	select {
+	case <-ctx.Done():
+		printInfo("Exiting program")
+	case sig := <-interrupt:
+		printInfo("Caught signal: %v", sig)
+	}
+
+	time.Sleep(time.Millisecond * 100)
 }
 
-func (s *App) ConsoleTick() {
+func (s *App) run() {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("\n> ")
+	for {
+		s.UpdateTitle()
+		fmt.Print("\n> ")
 
-	s.UpdateTitle()
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println()
+			printInfo(fmt.Sprint(err))
+			s.Quit()
+			return
+		}
 
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Println()
-		log.Println(err)
-		s.Quit()
-		return
+		if err := s.Process(strings.Trim(input, "\n\r")); err != nil {
+			return
+		}
 	}
-
-	if err := s.Process(strings.Trim(input, "\n\r")); err != nil {
-		return
-	}
-
-	s.ConsoleTick()
 }
 
 func (s *App) Quit() error {
-	log.Printf("Removed %d tabs during session", s.totalRemoved)
+	printInfo("Removed %d tabs during session", s.totalRemoved)
 	s.cancel()
 	return errors.New("Exiting program")
 }
@@ -155,6 +185,11 @@ func (s *App) OpenTabs(token string) {
 		limit = int(l)
 	}
 
+	if limit > 40 {
+		// limit just in case
+		return
+	}
+
 	_max := min(s.size, limit)
 	for i := 0; i < _max; i++ {
 		u := s.found[i].URL
@@ -168,6 +203,7 @@ func (s *App) OpenTabs(token string) {
 	s.RemoveTabs()
 }
 
+// Use when removing without opening
 func (s *App) ForceRemove() {
 	if s.size == 0 {
 		return
@@ -221,6 +257,8 @@ func (s *App) RemoveTabs() {
 	if len(s.consumed) == 0 {
 		return
 	}
+	defer timeTrack(time.Now())
+
 	removed := 0
 	for _, data := range s.data {
 		for _, group := range *data.payload.Groups {

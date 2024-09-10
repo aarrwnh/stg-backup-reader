@@ -15,7 +15,7 @@ import (
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  512,
-	WriteBufferSize: 512,
+	WriteBufferSize: 64,
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
@@ -38,11 +38,31 @@ func init() {
 type MessageIn struct {
 	Query string `json:"query"`
 	Id    int    `json:"id"`
+	Type  string `json:"type"`
 }
 
 type MessageOut struct {
-	Count int `json:"count"`
-	Id    int `json:"id"`
+	Data any    `json:"data"`
+	Id   int    `json:"id"`
+	Type string `json:"type"`
+}
+
+func NewMessage(app *App, data MessageIn) MessageOut {
+	var newData any
+	switch data.Type {
+	case "count":
+		newData = app.size
+	case "tabs":
+		var tabs []string
+		// TODO: add/use open limit?
+		for _, v := range app.found {
+			tabs = append(tabs, v.URL)
+		}
+		newData = tabs
+	default:
+		panic("`MessageIn.Type` is unknown")
+	}
+	return MessageOut{Data: newData, Id: data.Id, Type: data.Type}
 }
 
 func StartWebsocket(app *App) {
@@ -99,16 +119,23 @@ func echo(conn *websocket.Conn, app *App) {
 
 		if data.Query != "" {
 			fmt.Printf("%s\n", data.Query)
-			app.FindTabs(data.Query, false)
-			fmt.Print("\n> ")
 
-			msg := MessageOut{Count: app.size, Id: data.Id}
+			app.FindTabs(data.Query, false)
+			msg := NewMessage(app, data)
 			if err := conn.WriteJSON(msg); err != nil {
 				log.Println(err)
 				break
 			}
 
 			app.UpdateTitle()
+
+			// cleanup
+			switch data.Type {
+			case "tabs":
+				app.ForceRemove()
+			}
+
+			fmt.Print("\n> ")
 		}
 	}
 }

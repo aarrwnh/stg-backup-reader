@@ -14,7 +14,7 @@ import (
 
 const filenamePrefix = "manual-stg-"
 
-var groupId = regexp.MustCompile("[(.*)]")
+var groupId = regexp.MustCompile(`\[(.*)\]`)
 
 func LoadFiles(path *string) (files map[Path]Data, count int, err error) {
 	dir, err := os.ReadDir(filepath.Clean(*path))
