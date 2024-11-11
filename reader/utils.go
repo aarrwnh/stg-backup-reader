@@ -42,6 +42,9 @@ func commandParse[T ~string](input T) (T, T, T) {
 
 func highlightWord(pattern, line string) string {
 	start := strings.Index(strings.ToLower(line), strings.ToLower(pattern))
+	if start < 0 {
+		return line
+	}
 	pattern = line[start : start+len(pattern)]
 	parts := strings.Split(line, pattern)
 	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")

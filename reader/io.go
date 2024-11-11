@@ -84,7 +84,7 @@ type Tab struct {
 }
 
 func (t *Tab) Contains(pattern string) bool {
-	return strings.Contains(strings.ToLower(string(t.URL)+t.Title), strings.ToLower(pattern))
+	return strings.Contains(strings.ToLower(string(t.URL)+" "+t.Title), strings.ToLower(pattern))
 }
 
 type STGPayload struct {

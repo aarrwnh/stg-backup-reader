@@ -27,6 +27,7 @@ type App struct {
 	limit            uint8
 	found            []Tab
 	size             int
+	prevQuery        string
 	removedInSession int
 	consumed         Arr[string]
 	cancel           context.CancelFunc
@@ -182,6 +183,7 @@ func (s *App) FindTabs(query string, printLines bool) {
 	}
 	s.found = found
 	s.size = found.Length()
+	s.prevQuery = query
 	printInfo("found %d tabs", s.size)
 }
 
@@ -210,6 +212,7 @@ func (s *App) OpenTabs(token string) {
 
 	s.found = s.found[_max:]
 	s.size = len(s.found)
+	s.prevQuery = ""
 	s.RemoveTabs()
 }
 
@@ -225,6 +228,7 @@ func (s *App) ForceRemove() {
 
 	s.found = nil
 	s.size = 0
+	s.prevQuery = ""
 	s.RemoveTabs()
 }
 
@@ -243,8 +247,9 @@ func (s *App) ShowCurrent(cmd string) {
 		}
 		fmt.Printf("%7d\n", total)
 	default:
-		for _, x := range s.found {
-			fmt.Println(x.URL, x.Title)
+		for _, t := range s.found {
+			line := highlightWord(s.prevQuery, string(t.URL)+" "+t.Title)
+			fmt.Println(line)
 		}
 		printInfo("found %d tabs", s.size)
 	}
