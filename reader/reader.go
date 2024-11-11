@@ -164,8 +164,7 @@ func (s *App) FindTabs(query string, printLines bool) {
 				if t.Contains(query) {
 					found.Append(t)
 					if printLines {
-						line := highlightWord(query, string(t.URL)+" "+t.Title)
-						fmt.Println(line)
+						fmt.Println(highlightWord(query, t.ToString()))
 					}
 					count++
 				}
@@ -248,8 +247,7 @@ func (s *App) ShowCurrent(cmd string) {
 		fmt.Printf("%7d\n", total)
 	default:
 		for _, t := range s.found {
-			line := highlightWord(s.prevQuery, string(t.URL)+" "+t.Title)
-			fmt.Println(line)
+			fmt.Println(highlightWord(s.prevQuery, t.ToString()))
 		}
 		printInfo("found %d tabs", s.size)
 	}
