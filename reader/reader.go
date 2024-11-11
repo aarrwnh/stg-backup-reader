@@ -23,17 +23,20 @@ var (
 )
 
 type App struct {
-	data         map[Path]Data
-	limit        int
-	found        []Tab
-	size         int
-	totalRemoved int
-	consumed     Arr[string]
-	cancel       context.CancelFunc
-	wsConnected  bool
+	data             map[Path]Data
+	limit            uint8
+	found            []Tab
+	size             int
+	removedInSession int
+	consumed         Arr[string]
+	cancel           context.CancelFunc
+	wsConnected      bool
+
+	// TODO: temp?
+	debugLevel uint8
 }
 
-func NewApp(data map[Path]Data, limit int, cancel context.CancelFunc) App {
+func NewApp(data map[Path]Data, limit uint8, cancel context.CancelFunc) App {
 	return App{
 		data:   data,
 		limit:  limit,
@@ -95,7 +98,7 @@ func (s *App) run() {
 }
 
 func (s *App) Quit() error {
-	printInfo("Removed %d tabs during session", s.totalRemoved)
+	printInfo("Removed %d tabs during session", s.removedInSession)
 	s.cancel()
 	return errors.New("Exiting program")
 }
@@ -132,8 +135,14 @@ func (s *App) Process(input string) (err error) {
 func (s *App) Set(token1, token2 string) {
 	switch token1 {
 	case "limit":
-		if limit, err := strconv.ParseInt(token2, 10, 0); err == nil {
-			s.limit = int(limit)
+		if num, err := strconv.ParseInt(token2, 10, 8); err == nil {
+			printInfo("OpenLimit %d => %d", s.limit, num)
+			s.limit = uint8(num)
+		}
+	case "debug":
+		if num, err := strconv.ParseInt(token2, 10, 8); err == nil {
+			printInfo("DebugLevel %d => %d", s.debugLevel, num)
+			s.debugLevel = uint8(num)
 		}
 	}
 }
@@ -160,7 +169,7 @@ func (s *App) FindTabs(query string, printLines bool) {
 					count++
 				}
 			}
-			if count > 0 {
+			if count > 0 && s.debugLevel != 0 {
 				printInfo(
 					"found `%d` tabs in group `%s` | %d | %s",
 					count,
@@ -173,6 +182,7 @@ func (s *App) FindTabs(query string, printLines bool) {
 	}
 	s.found = found
 	s.size = found.Length()
+	printInfo("found %d tabs", s.size)
 }
 
 func (s *App) OpenTabs(token string) {
@@ -180,7 +190,7 @@ func (s *App) OpenTabs(token string) {
 		return
 	}
 
-	limit := min(s.size, s.limit)
+	limit := min(s.size, int(s.limit))
 	if l, err := strconv.ParseInt(token, 10, 0); err == nil {
 		limit = int(l)
 	}
@@ -236,6 +246,7 @@ func (s *App) ShowCurrent(cmd string) {
 		for _, x := range s.found {
 			fmt.Println(x.URL, x.Title)
 		}
+		printInfo("found %d tabs", s.size)
 	}
 }
 
@@ -249,7 +260,6 @@ func (s *App) SaveTabs() {
 			*data.modified = false
 		}
 	}
-	s.totalRemoved = 0
 }
 
 // Remove currently found tabs from groups.
@@ -275,7 +285,7 @@ func (s *App) RemoveTabs() {
 		}
 	}
 
-	s.totalRemoved += removed
+	s.removedInSession += removed
 	s.consumed.Clear()
 
 	printInfo("removed %d item/s", removed)
@@ -286,5 +296,5 @@ func (s *App) UpdateTitle() {
 	if s.wsConnected {
 		a = " | *"
 	}
-	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.totalRemoved, a))
+	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.removedInSession, a))
 }
