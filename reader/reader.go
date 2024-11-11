@@ -28,6 +28,7 @@ type App struct {
 	found            []Tab
 	size             int
 	prevQuery        string
+	saved            bool
 	removedInSession int
 	consumed         Arr[string]
 	cancel           context.CancelFunc
@@ -99,7 +100,9 @@ func (s *App) run() {
 }
 
 func (s *App) Quit() error {
-	printInfo("Removed %d tabs during session", s.removedInSession)
+	if s.saved {
+		printInfo("Removed %d tabs during session", s.removedInSession)
+	}
 	s.cancel()
 	return errors.New("Exiting program")
 }
@@ -120,7 +123,7 @@ func (s *App) Process(input string) (err error) {
 		case "show", "list", "ls":
 			s.ShowCurrent(subcmd)
 		case "s", "save":
-			s.SaveTabs()
+			s.writeTabs()
 		case "q", "quit", "exit":
 			err = s.Quit()
 		case "c", "clear":
@@ -253,7 +256,8 @@ func (s *App) ShowCurrent(cmd string) {
 	}
 }
 
-func (s *App) SaveTabs() {
+// Write changes into files
+func (s *App) writeTabs() {
 	for path, data := range s.data {
 		if *data.modified {
 			if err := saveFiles(path.path, data.payload); err != nil {
@@ -263,6 +267,7 @@ func (s *App) SaveTabs() {
 			*data.modified = false
 		}
 	}
+	s.saved = true
 }
 
 // Remove currently found tabs from groups.
@@ -290,6 +295,8 @@ func (s *App) RemoveTabs() {
 
 	s.removedInSession += removed
 	s.consumed.Clear()
+	// mark save state only after removal from map
+	s.saved = false
 
 	printInfo("removed %d item/s", removed)
 }
