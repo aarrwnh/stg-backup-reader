@@ -23,16 +23,21 @@ var (
 )
 
 type App struct {
-	data             map[Path]Data
-	limit            uint8
-	found            []Tab
-	size             int
-	prevQuery        string
-	saved            bool
-	removedInSession int
-	consumed         Arr[string]
-	cancel           context.CancelFunc
-	wsConnected      bool
+	cancel context.CancelFunc
+
+	data        map[Path]Data
+	found       []Tab
+	size        int
+	prevQuery   string
+	saved       bool
+	wsConnected bool
+
+	// Remember opened tabs for batch removal on save
+	consumed Arr[string]
+	// How many tabs to open in browser at one time
+	limit uint8
+	// Tab count removed from payload but yet to be saved
+	removePending int
 
 	// TODO: temp?
 	debugLevel uint8
@@ -100,22 +105,22 @@ func (s *App) run() {
 }
 
 func (s *App) Quit() error {
-	if s.saved {
-		printInfo("Removed %d tabs during session", s.removedInSession)
-	}
 	s.cancel()
 	return errors.New("Exiting program")
 }
 
 func (s *App) Process(input string) (err error) {
 	cmd, subcmd, rest := commandParse(input)
+	query := subcmd + " " + rest
 
 	if cmdPrefix.MatchString(cmd) {
 		switch string(cmdPrefix.ReplaceAll([]byte(cmd), []byte(""))) {
 		case "set":
 			s.Set(subcmd, rest)
 		case "f", "find":
-			s.FindTabs(strings.SplitN(input, " ", 2)[1], true)
+			s.FindTabs(query, true)
+		case "filter":
+			s.filterTabs(query, true)
 		case "o", "open":
 			s.OpenTabs(subcmd)
 		case "remove", "rm", "rem":
@@ -158,6 +163,8 @@ func (s *App) FindTabs(query string, printLines bool) {
 
 	defer timeTrack(time.Now())
 
+	s.prevQuery = query
+
 	var found Arr[Tab]
 	query = strings.ToLower(query)
 	for path, data := range s.data {
@@ -185,7 +192,26 @@ func (s *App) FindTabs(query string, printLines bool) {
 	}
 	s.found = found
 	s.size = found.Length()
-	s.prevQuery = query
+	printInfo("found %d tabs", s.size)
+}
+
+// Perform further search on found query
+func (s *App) filterTabs(query string, printLines bool) {
+	if s.size == 0 {
+		return
+	}
+	var found Arr[Tab]
+	query = strings.ToLower(query)
+	for _, t := range s.found {
+		if t.Contains(query) {
+			found.Append(t)
+			if printLines {
+				fmt.Println(highlightWord(query, t.ToString()))
+			}
+		}
+	}
+	s.found = found
+	s.size = found.Length()
 	printInfo("found %d tabs", s.size)
 }
 
@@ -206,10 +232,10 @@ func (s *App) OpenTabs(token string) {
 
 	_max := min(s.size, limit)
 	for i := 0; i < _max; i++ {
-		u := s.found[i].URL
-		fmt.Println(u)
-		xdg.Open(u)
-		s.consumed.Append(u)
+		u := s.found[i]
+		fmt.Println(u.ToString())
+		xdg.Open(u.URL)
+		s.consumed.Append(u.URL)
 	}
 
 	s.found = s.found[_max:]
@@ -268,6 +294,7 @@ func (s *App) writeTabs() {
 		}
 	}
 	s.saved = true
+	s.removePending = 0
 }
 
 // Remove currently found tabs from groups.
@@ -293,9 +320,8 @@ func (s *App) RemoveTabs() {
 		}
 	}
 
-	s.removedInSession += removed
+	s.removePending += removed
 	s.consumed.Clear()
-	// mark save state only after removal from map
 	s.saved = false
 
 	printInfo("removed %d item/s", removed)
@@ -306,5 +332,5 @@ func (s *App) UpdateTitle() {
 	if s.wsConnected {
 		a = " | *"
 	}
-	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.removedInSession, a))
+	setTitle(fmt.Sprintf("f:%d | rem:%d%s", s.size, s.removePending, a))
 }

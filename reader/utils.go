@@ -50,14 +50,6 @@ func highlightWord(pattern, line string) string {
 	return strings.Join(parts, "\033[34m"+pattern+"\033[0m")
 }
 
-func setTitle(t string) {
-	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
-}
-
-func printInfo(format string, a ...any) {
-	fmt.Fprintf(os.Stdout, "\033[38;2;100;100;100m# %s\033[0m\n", fmt.Sprintf(format, a...))
-}
-
 func timeTrack(start time.Time) {
 	elapsed := time.Since(start)
 	printInfo("...%s", round(elapsed, 2))
@@ -80,4 +72,13 @@ func round(d time.Duration, digits int) time.Duration {
 		d = d.Round(time.Microsecond / divs[digits])
 	}
 	return d
+}
+
+// osc
+func setTitle(t string) {
+	fmt.Fprintf(os.Stdout, "\033]0;%s\007", t)
+}
+
+func printInfo(format string, a ...any) {
+	fmt.Fprintf(os.Stdout, "\033[38;2;100;100;100m# %s\033[0m\n", fmt.Sprintf(format, a...))
 }

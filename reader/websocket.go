@@ -69,10 +69,7 @@ func StartWebsocket(app *App) {
 	if !ws {
 		return
 	}
-
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHandler(app, w, r)
-	})
+	http.HandleFunc("/ws", wsHandler(app))
 
 	if certPath == "" || keyPath == "" {
 		log.Fatal("Warning: SSL/TLS certificate and/or private key file not provided.")
@@ -85,16 +82,15 @@ func StartWebsocket(app *App) {
 }
 
 func expandHome(p string) string {
-	path := p
 	if strings.HasPrefix(p, "~/") {
 		dirname, _ := os.UserHomeDir()
-		path = filepath.Join(dirname, p[2:])
+		p = filepath.Join(dirname, p[2:])
 	}
-	return path
+	return p
 }
 
 func echo(conn *websocket.Conn, app *App) {
-	defer func() {
+	defer func() { // cleanup
 		conn.Close()
 		app.wsConnected = false
 		app.UpdateTitle()
@@ -140,18 +136,22 @@ func echo(conn *websocket.Conn, app *App) {
 	}
 }
 
-func wsHandler(app *App, w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		return
+type HTTPHandler func(w http.ResponseWriter, r *http.Request)
+
+func wsHandler(app *App) HTTPHandler {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// conn.SetReadLimit(maxMessageSize)
+		// conn.SetReadDeadline(time.Now().Add(pongWait))
+		// conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
+		// tx := make(chan interface{})
+		go echo(conn, app)
+		// go responder(tx)
 	}
-
-	// conn.SetReadLimit(maxMessageSize)
-	// conn.SetReadDeadline(time.Now().Add(pongWait))
-	// conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-
-	// tx := make(chan interface{})
-	go echo(conn, app)
-	// go responder(tx)
 }
