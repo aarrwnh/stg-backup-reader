@@ -55,8 +55,8 @@ func NewMessage(app *App, data MessageIn) MessageOut {
 	case "tabs":
 		var tabs []string
 		// TODO: add/use open limit?
-		for _, v := range app.found {
-			tabs = append(tabs, v.URL)
+		for _, t := range app.found {
+			tabs = append(tabs, t.Url)
 		}
 		newData = tabs
 	default:

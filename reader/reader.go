@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	cmdPrefix = regexp.MustCompile("^[;:]")
-	xdg       = NewOpener()
+	cmdPrefix  = regexp.MustCompile("^[;:]")
+	httpPrefix = regexp.MustCompile("^https?://")
+	xdg        = NewOpener()
 )
 
 type App struct {
@@ -156,6 +157,10 @@ func (s *App) Set(token1, token2 string) {
 	}
 }
 
+func stripProtocol(s string) string {
+	return string(httpPrefix.ReplaceAll([]byte(s), []byte("")))
+}
+
 func (s *App) FindTabs(query string, printLines bool) {
 	if len(query) <= 1 {
 		return
@@ -163,10 +168,10 @@ func (s *App) FindTabs(query string, printLines bool) {
 
 	defer timeTrack(time.Now())
 
-	s.prevQuery = query
+	s.prevQuery = stripProtocol(query)
+	query = strings.ToLower(s.prevQuery)
 
 	var found Arr[Tab]
-	query = strings.ToLower(query)
 	for path, data := range s.data {
 		for _, g := range *data.payload.Groups {
 			count := 0
@@ -234,8 +239,8 @@ func (s *App) OpenTabs(token string) {
 	for i := 0; i < _max; i++ {
 		u := s.found[i]
 		fmt.Println(u.ToString())
-		xdg.Open(u.URL)
-		s.consumed.Append(u.URL)
+		xdg.Open(u.Url)
+		s.consumed.Append(u.Url)
 	}
 
 	s.found = s.found[_max:]
@@ -251,7 +256,7 @@ func (s *App) ForceRemove() {
 	}
 
 	for _, x := range s.found {
-		s.consumed.Append(x.URL)
+		s.consumed.Append(x.Url)
 	}
 
 	s.found = nil
@@ -309,7 +314,7 @@ func (s *App) RemoveTabs() {
 		for _, group := range *data.payload.Groups {
 			tabs := group.Tabs
 			for idx := len(*tabs) - 1; idx >= 0; idx-- {
-				if slices.Contains(s.consumed, (*tabs)[idx].URL) {
+				if slices.Contains(s.consumed, (*tabs)[idx].Url) {
 					tabs.Remove(idx)
 					removed += 1
 					if !*data.modified {

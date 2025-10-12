@@ -53,7 +53,7 @@ func LoadFiles(path *string) (files map[Path]Data, count int, err error) {
 
 				g := *payload.Groups
 				for i := len(g) - 1; i >= 0; i-- {
-					if !slices.Contains(allowedGroups, g[i].ID) {
+					if !slices.Contains(allowedGroups, g[i].Id) {
 						g.Remove(i)
 					}
 				}
@@ -78,23 +78,32 @@ func saveFiles(path string, payload STGPayload) error {
 }
 
 type Tab struct {
-	URL   string `json:"url"`
+	Url   string `json:"url"`
 	Title string `json:"title"`
-	ID    int    `json:"id"`
+	Id    int    `json:"id"`
 }
 
 func (t *Tab) Contains(pattern string) bool {
-	return strings.Contains(strings.ToLower(t.ToString()), strings.ToLower(pattern))
+	size := len(pattern)
+	pattern = strings.ToLower(pattern)
+	url := t.Url[7:] // http://
+	if size <= len(url) && strings.Contains(strings.ToLower(url), pattern) {
+		return true
+	}
+	if size <= len(t.Title) && strings.Contains(strings.ToLower(t.Title), pattern) {
+		return true
+	}
+	return false
 }
 
 func (t Tab) ToString() string {
-	return t.URL + " " + t.Title
+	return t.Url + " " + t.Title
 }
 
 type STGPayload struct {
 	Version string `json:"version"`
 	Groups  *Arr[struct {
-		ID    int       `json:"id"`
+		Id    int       `json:"id"`
 		Title string    `json:"title"`
 		Tabs  *Arr[Tab] `json:"tabs"`
 	}] `json:"groups"`
