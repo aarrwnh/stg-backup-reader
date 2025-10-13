@@ -19,7 +19,7 @@ func (s *Opener) Open(url string) {
 	exec.Command(s.cmd, args...).Start()
 }
 
-func NewOpener() Opener {
+func newOpener() Opener {
 	var cmd string
 	var args []string
 	switch runtime.GOOS {
@@ -63,15 +63,16 @@ func round(d time.Duration, digits int) time.Duration {
 	if digits < 0 && digits > len(divs) {
 		panic("wrong length provided")
 	}
+	var v time.Duration
 	switch {
 	case d > time.Second:
-		d = d.Round(time.Second / divs[digits])
+		v = time.Second
 	case d > time.Millisecond:
-		d = d.Round(time.Millisecond / divs[digits])
+		v = time.Millisecond
 	case d > time.Microsecond:
-		d = d.Round(time.Microsecond / divs[digits])
+		v = time.Microsecond
 	}
-	return d
+	return d.Round(v / divs[digits])
 }
 
 // osc

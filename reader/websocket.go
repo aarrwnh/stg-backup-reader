@@ -47,14 +47,14 @@ type MessageOut struct {
 	Type string `json:"type"`
 }
 
-func NewMessage(app *App, data MessageIn) MessageOut {
+func newMessage(app *App, data MessageIn) *MessageOut {
 	var newData any
 	switch data.Type {
 	case "count":
 		newData = app.size
 	case "tabs":
-		var tabs []string
 		// TODO: add/use open limit?
+		tabs := make([]string, 0, len(app.found))
 		for _, t := range app.found {
 			tabs = append(tabs, t.Url)
 		}
@@ -62,10 +62,10 @@ func NewMessage(app *App, data MessageIn) MessageOut {
 	default:
 		panic("`MessageIn.Type` is unknown")
 	}
-	return MessageOut{Data: newData, Id: data.Id, Type: data.Type}
+	return &MessageOut{Data: newData, Id: data.Id, Type: data.Type}
 }
 
-func StartWebsocket(app *App) {
+func startWebsocket(app *App) {
 	if !ws {
 		return
 	}
@@ -116,8 +116,8 @@ func echo(conn *websocket.Conn, app *App) {
 		if data.Query != "" {
 			fmt.Printf("%s\n", data.Query)
 
-			app.FindTabs(data.Query, false)
-			msg := NewMessage(app, data)
+			app.findTabs(newQuery(data.Query).withPriorityUrl().setPrint(false))
+			msg := newMessage(app, data)
 			if err := conn.WriteJSON(msg); err != nil {
 				log.Println(err)
 				break
@@ -128,7 +128,7 @@ func echo(conn *websocket.Conn, app *App) {
 			// cleanup
 			switch data.Type {
 			case "tabs":
-				app.ForceRemove()
+				app.forceRemove()
 			}
 
 			fmt.Print("\n> ")

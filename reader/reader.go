@@ -20,35 +20,30 @@ import (
 var (
 	cmdPrefix  = regexp.MustCompile("^[;:]")
 	httpPrefix = regexp.MustCompile("^https?://")
-	xdg        = NewOpener()
+	xdg        = newOpener()
 )
 
 type App struct {
-	cancel context.CancelFunc
-
-	data        map[Path]Data
-	found       []Tab
-	size        int
-	prevQuery   string
-	saved       bool
-	wsConnected bool
-
-	// Remember opened tabs for batch removal on save
-	consumed Arr[string]
-	// How many tabs to open in browser at one time
-	limit uint8
-	// Tab count removed from payload but yet to be saved
-	removePending int
-
-	// TODO: temp?
-	debugLevel uint8
+	cancel        context.CancelFunc
+	data          map[Path]Data
+	found         Arr[Tab]
+	size          int
+	prevQuery     string
+	saved         bool
+	wsConnected   bool
+	insensitive   bool        // Regex "i" flag. Perform case-insensitive search.
+	consumed      Arr[string] // Cache tabs for batch removal on save.
+	limit         uint8       // How many tabs to open in browser at one time
+	removePending int         // Tab count removed from payload but yet to be saved
+	debugLevel    uint8       // TODO: temp?
 }
 
-func NewApp(data map[Path]Data, limit uint8, cancel context.CancelFunc) App {
+func newApp(data map[Path]Data, limit uint8, cancel context.CancelFunc) App {
 	return App{
-		data:   data,
-		limit:  limit,
-		cancel: cancel,
+		data:        data,
+		limit:       limit,
+		cancel:      cancel,
+		insensitive: true,
 	}
 }
 
@@ -57,7 +52,7 @@ var path = flag.String("p", ".", "path")
 func Start() {
 	flag.Parse()
 
-	data, count, err := LoadFiles(path)
+	data, count, err := loadFiles(path)
 	if err != nil {
 		return
 	}
@@ -70,9 +65,9 @@ func Start() {
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(interrupt)
 
-	app := NewApp(data, 10, cancel)
+	app := newApp(data, 10, cancel)
 
-	go StartWebsocket(&app)
+	go startWebsocket(&app)
 	go app.run()
 
 	select {
@@ -95,7 +90,7 @@ func (s *App) run() {
 		if err != nil {
 			fmt.Println()
 			printInfo(fmt.Sprint(err))
-			s.Quit()
+			s.quit()
 			return
 		}
 
@@ -105,51 +100,58 @@ func (s *App) run() {
 	}
 }
 
-func (s *App) Quit() error {
+func (s *App) quit() error {
 	s.cancel()
 	return errors.New("Exiting program")
 }
 
 func (s *App) Process(input string) (err error) {
 	cmd, subcmd, rest := commandParse(input)
-	query := subcmd + " " + rest
+	query := strings.TrimSpace(subcmd + " " + rest)
 
 	if cmdPrefix.MatchString(cmd) {
 		switch string(cmdPrefix.ReplaceAll([]byte(cmd), []byte(""))) {
 		case "set":
-			s.Set(subcmd, rest)
+			s.set(subcmd, rest)
 		case "f", "find":
-			s.FindTabs(query, true)
+			s.findTabs(newQuery(query))
+		case "findurl":
+			s.findTabs(newQuery(query).withPriorityUrl())
 		case "filter":
-			s.filterTabs(query, true)
+			s.filterTabs(newQuery(query))
 		case "o", "open":
-			s.OpenTabs(subcmd)
+			s.openTabs(subcmd)
 		case "remove", "rm", "rem":
-			s.ForceRemove()
+			s.forceRemove()
 		case "show", "list", "ls":
-			s.ShowCurrent(subcmd)
+			s.showCurrent(subcmd)
 		case "s", "save":
 			s.writeTabs()
 		case "q", "quit", "exit":
-			err = s.Quit()
+			err = s.quit()
 		case "c", "clear":
 			fmt.Print("\033[H\033[2J")
 		}
 	} else {
-		s.FindTabs(input, true)
+		s.findTabs(newQuery(input))
 	}
-
 	return
 }
 
-func (s *App) Set(token1, token2 string) {
+func (s *App) set(token1, token2 string) {
 	switch token1 {
-	case "limit":
+	case "insensitive", "i":
+		if b, err := strconv.ParseBool(token2); err == nil {
+			printInfo("SearchInsensitive %v => %v", s.insensitive, b)
+			s.insensitive = b
+		}
+
+	case "limit", "l":
 		if num, err := strconv.ParseInt(token2, 10, 8); err == nil {
 			printInfo("OpenLimit %d => %d", s.limit, num)
 			s.limit = uint8(num)
 		}
-	case "debug":
+	case "debug", "d":
 		if num, err := strconv.ParseInt(token2, 10, 8); err == nil {
 			printInfo("DebugLevel %d => %d", s.debugLevel, num)
 			s.debugLevel = uint8(num)
@@ -161,29 +163,20 @@ func stripProtocol(s string) string {
 	return string(httpPrefix.ReplaceAll([]byte(s), []byte("")))
 }
 
-func (s *App) FindTabs(query string, printLines bool) {
-	if len(query) <= 1 {
+func (s *App) findTabs(query *SearchQuery) {
+	if len(query.pattern) <= 1 {
 		return
 	}
 
 	defer timeTrack(time.Now())
 
-	s.prevQuery = stripProtocol(query)
-	query = strings.ToLower(s.prevQuery)
+	s.prevQuery = stripProtocol(query.pattern)
 
 	var found Arr[Tab]
 	for path, data := range s.data {
 		for _, g := range *data.payload.Groups {
-			count := 0
-			for _, t := range *g.Tabs {
-				if t.Contains(query) {
-					found.Append(t)
-					if printLines {
-						fmt.Println(highlightWord(query, t.ToString()))
-					}
-					count++
-				}
-			}
+			count, found0 := search(g.Tabs, query, s.insensitive)
+			found.Append(found0...)
 			if count > 0 && s.debugLevel != 0 {
 				printInfo(
 					"found `%d` tabs in group `%s` | %d | %s",
@@ -201,26 +194,20 @@ func (s *App) FindTabs(query string, printLines bool) {
 }
 
 // Perform further search on found query
-func (s *App) filterTabs(query string, printLines bool) {
+func (s *App) filterTabs(query *SearchQuery) {
 	if s.size == 0 {
 		return
 	}
-	var found Arr[Tab]
-	query = strings.ToLower(query)
-	for _, t := range s.found {
-		if t.Contains(query) {
-			found.Append(t)
-			if printLines {
-				fmt.Println(highlightWord(query, t.ToString()))
-			}
-		}
+	defer timeTrack(time.Now())
+	size, found := search(&s.found, query, true)
+	if size > 0 {
+		s.found = found
+		s.size = size
 	}
-	s.found = found
-	s.size = found.Length()
-	printInfo("found %d tabs", s.size)
+	printInfo("found %d tabs", size)
 }
 
-func (s *App) OpenTabs(token string) {
+func (s *App) openTabs(token string) {
 	if s.size == 0 {
 		return
 	}
@@ -250,7 +237,7 @@ func (s *App) OpenTabs(token string) {
 }
 
 // Use when removing without opening
-func (s *App) ForceRemove() {
+func (s *App) forceRemove() {
 	if s.size == 0 {
 		return
 	}
@@ -265,12 +252,12 @@ func (s *App) ForceRemove() {
 	s.RemoveTabs()
 }
 
-func (s *App) ShowCurrent(cmd string) {
+func (s *App) showCurrent(cmd string) {
 	switch cmd {
 	case "files":
 		var total int
 		for path := range s.data {
-			var entries int
+			entries := 0
 			g := *s.data[path].payload.Groups
 			for i := range g {
 				entries += len(*g[i].Tabs)
@@ -311,17 +298,19 @@ func (s *App) RemoveTabs() {
 
 	removed := 0
 	for _, data := range s.data {
+		j := 0
 		for _, group := range *data.payload.Groups {
-			tabs := group.Tabs
-			for idx := len(*tabs) - 1; idx >= 0; idx-- {
-				if slices.Contains(s.consumed, (*tabs)[idx].Url) {
-					tabs.Remove(idx)
-					removed += 1
-					if !*data.modified {
-						*data.modified = true
-					}
+			group.Tabs.Filter(func(item Tab) bool {
+				if slices.Contains(s.consumed, item.Url) {
+					j += 1
+					return true
 				}
-			}
+				return false
+			})
+		}
+		if j > 0 {
+			*data.modified = true
+			removed += j
 		}
 	}
 
