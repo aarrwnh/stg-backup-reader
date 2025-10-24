@@ -190,7 +190,9 @@ func (s *App) findTabs(query *SearchQuery) {
 	}
 	s.found = found
 	s.size = found.Length()
-	printInfo("found %d tabs", s.size)
+	if s.size > 0 {
+		printInfo("found %d tabs", s.size)
+	}
 }
 
 // Perform further search on found query
